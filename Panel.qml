@@ -25,6 +25,8 @@ Panel {
   property string selectedPrayerId: ""
 
   readonly property var barIdentity: hostWidget || root
+  // Popup text must not inherit the wallpaper-adaptive transparent bar color.
+  readonly property color panelForeground: (Color.popups.text !== undefined) ? Color.popups.text : Color.foreground
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
   readonly property string readingsMeta: {
@@ -214,13 +216,13 @@ Panel {
             height: Style.space(42)
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
-            color: Style.hoverFillFor(root.barForeground, Color.accent)
+            color: Style.hoverFillFor(root.panelForeground, Color.accent)
             borderSpec: Border.flat(Color.accent, 1)
             radius: Style.cornerRadius
 
             ChiRho {
               anchors.centerIn: parent
-              foreground: root.barForeground
+              foreground: root.panelForeground
               size: Style.space(30)
             }
           }
@@ -237,7 +239,7 @@ Panel {
               id: headerTitle
               text: "Catholic Reference"
               textFormat: Text.PlainText
-              color: root.barForeground
+              color: root.panelForeground
               font.family: root.fontFamily
               font.pixelSize: Style.font.heading
               font.bold: true
@@ -246,7 +248,7 @@ Panel {
             Text {
               text: "Douay-Rheims Bible · Catechism · Prayers · Readings · Hours"
               textFormat: Text.PlainText
-              color: root.barForeground
+              color: root.panelForeground
               opacity: 0.62
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
@@ -259,7 +261,7 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             text: "ESC"
             textFormat: Text.PlainText
-            color: root.barForeground
+            color: root.panelForeground
             opacity: 0.62
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
@@ -277,7 +279,7 @@ Panel {
             text: "Bible"
             selected: root.currentTab === "bible"
             bordered: true
-            foreground: root.barForeground
+            foreground: root.panelForeground
             onClicked: root.setTab("bible")
           }
           Button {
@@ -285,7 +287,7 @@ Panel {
             text: "Catechism"
             selected: root.currentTab === "catechism"
             bordered: true
-            foreground: root.barForeground
+            foreground: root.panelForeground
             onClicked: root.setTab("catechism")
           }
           Button {
@@ -293,7 +295,7 @@ Panel {
             text: "Prayers"
             selected: root.currentTab === "prayers"
             bordered: true
-            foreground: root.barForeground
+            foreground: root.panelForeground
             onClicked: root.setTab("prayers")
           }
           Button {
@@ -301,7 +303,7 @@ Panel {
             text: "Readings"
             selected: root.currentTab === "readings"
             bordered: true
-            foreground: root.barForeground
+            foreground: root.panelForeground
             onClicked: root.setTab("readings")
           }
           Button {
@@ -309,7 +311,7 @@ Panel {
             text: "Hours"
             selected: root.currentTab === "hours"
             bordered: true
-            foreground: root.barForeground
+            foreground: root.panelForeground
             onClicked: root.setTab("hours")
           }
         }
@@ -324,7 +326,7 @@ Panel {
             id: searchField
             width: parent.width
             placeholderText: root.currentTab === "bible" ? "Search the Bible…" : "Search the Catechism…"
-            foreground: root.barForeground
+            foreground: root.panelForeground
             accent: Color.accent
             rightPadding: Style.space(54)
             text: root.query
@@ -363,7 +365,7 @@ Panel {
               anchors.verticalCenter: parent.verticalCenter
               text: "ENTER"
               textFormat: Text.PlainText
-              color: root.barForeground
+              color: root.panelForeground
               opacity: 0.48
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -388,7 +390,7 @@ Panel {
                 height: Style.space(28)
                 radius: height / 2
                 color: chipMouse.containsMouse
-                  ? Style.hoverFillFor(root.barForeground, Color.accent)
+                  ? Style.hoverFillFor(root.panelForeground, Color.accent)
                   : "transparent"
                 border.width: 1
                 border.color: Color.popups.border
@@ -398,7 +400,7 @@ Panel {
                   anchors.centerIn: parent
                   text: parent.modelData
                   textFormat: Text.PlainText
-                  color: root.barForeground
+                  color: root.panelForeground
                   opacity: 0.8
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.bodySmall
@@ -426,7 +428,7 @@ Panel {
               ? "Try a theme, phrase, or verse reference. Click a result to copy it."
               : "Try a topic or phrase. Click a paragraph to copy it."
             textFormat: Text.PlainText
-            color: root.barForeground
+            color: root.panelForeground
             opacity: 0.58
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
@@ -444,7 +446,7 @@ Panel {
               width: Math.min(Style.space(260), implicitWidth)
               text: root.statusText
               textFormat: Text.PlainText
-              color: root.barForeground
+              color: root.panelForeground
               opacity: 0.64
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
@@ -460,7 +462,7 @@ Panel {
               id: keyboardHint
               text: resultModel.count > 0 ? "↑ ↓  navigate · ENTER  copy" : ""
               textFormat: Text.PlainText
-              color: root.barForeground
+              color: root.panelForeground
               opacity: 0.46
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
@@ -494,7 +496,7 @@ Panel {
                     ? (root.currentTab === "bible" ? "Searching the Bible…" : "Searching the Catechism…")
                     : "No matches"
                   textFormat: Text.PlainText
-                  color: root.barForeground
+                  color: root.panelForeground
                   opacity: 0.62
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
@@ -521,10 +523,10 @@ Panel {
                       anchors.fill: parent
                       radius: Style.cornerRadius
                       color: root.selectedIndex === index
-                        ? Style.hoverFillFor(root.barForeground, Color.accent)
+                        ? Style.hoverFillFor(root.panelForeground, Color.accent)
                         : "transparent"
                       borderSpec: root.selectedIndex === index
-                        ? Border.controlSpec("hover-cursor", root.barForeground, Color.accent)
+                        ? Border.controlSpec("hover-cursor", root.panelForeground, Color.accent)
                         : Border.flat(Color.popups.border, 1)
                     }
 
@@ -540,7 +542,7 @@ Panel {
                           id: referenceLabel
                           text: reference
                           textFormat: Text.PlainText
-                          color: root.barForeground
+                          color: root.panelForeground
                           font.family: root.fontFamily
                           font.pixelSize: Style.font.bodySmall
                           font.bold: true
@@ -555,7 +557,7 @@ Panel {
                           id: copyHint
                           text: "COPY"
                           textFormat: Text.PlainText
-                          color: root.barForeground
+                          color: root.panelForeground
                           opacity: 0.46
                           font.family: root.fontFamily
                           font.pixelSize: Style.font.caption
@@ -568,7 +570,7 @@ Panel {
                         width: parent.width
                         text: verse
                         textFormat: Text.PlainText
-                        color: root.barForeground
+                        color: root.panelForeground
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.body
                         wrapMode: Text.WordWrap
@@ -609,7 +611,7 @@ Panel {
                 text: modelData.name
                 selected: root.selectedPrayerId === modelData.id
                 bordered: true
-                foreground: root.barForeground
+                foreground: root.panelForeground
                 onClicked: root.selectedPrayerId = modelData.id
               }
             }
@@ -633,7 +635,7 @@ Panel {
                 width: parent.width
                 text: root.selectedPrayer() ? root.selectedPrayer().name : ""
                 textFormat: Text.PlainText
-                color: root.barForeground
+                color: root.panelForeground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.subtitle
                 font.bold: true
@@ -644,7 +646,7 @@ Panel {
                 visible: root.selectedPrayer() && root.selectedPrayer().latin_name !== ""
                 text: root.selectedPrayer() ? root.selectedPrayer().latin_name : ""
                 textFormat: Text.PlainText
-                color: root.barForeground
+                color: root.panelForeground
                 opacity: 0.62
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.bodySmall
@@ -654,7 +656,7 @@ Panel {
                 width: parent.width
                 text: "ENGLISH"
                 textFormat: Text.PlainText
-                color: root.barForeground
+                color: root.panelForeground
                 opacity: 0.5
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -664,7 +666,7 @@ Panel {
                 width: parent.width
                 text: root.selectedPrayer() ? root.selectedPrayer().english : ""
                 textFormat: Text.PlainText
-                color: root.barForeground
+                color: root.panelForeground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
                 wrapMode: Text.WordWrap
@@ -674,7 +676,7 @@ Panel {
                 visible: root.selectedPrayer() && root.selectedPrayer().latin !== ""
                 text: "LATIN"
                 textFormat: Text.PlainText
-                color: root.barForeground
+                color: root.panelForeground
                 opacity: 0.5
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -685,7 +687,7 @@ Panel {
                 visible: root.selectedPrayer() && root.selectedPrayer().latin !== ""
                 text: root.selectedPrayer() ? root.selectedPrayer().latin : ""
                 textFormat: Text.PlainText
-                color: root.barForeground
+                color: root.panelForeground
                 opacity: 0.85
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
@@ -713,7 +715,7 @@ Panel {
                 width: parent.width
                 text: root.service && root.service.readings ? root.service.readings.title : ""
                 textFormat: Text.PlainText
-                color: root.barForeground
+                color: root.panelForeground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.subtitle
                 font.bold: true
@@ -735,7 +737,7 @@ Panel {
               text: "Refresh"
               selected: false
               bordered: true
-              foreground: root.barForeground
+              foreground: root.panelForeground
               tooltipText: "Refresh today's readings"
               onClicked: { if (root.service) root.service.loadReadings(true) }
             }
@@ -746,7 +748,7 @@ Panel {
             visible: root.service && root.service.readingsLoading && !root.service.readings
             text: "Loading today's readings…"
             textFormat: Text.PlainText
-            color: root.barForeground
+            color: root.panelForeground
             opacity: 0.62
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
@@ -758,7 +760,7 @@ Panel {
             visible: root.service && root.service.readingsError !== "" && !root.service.readings
             text: "Offline — couldn't fetch today's readings.\n" + (root.service ? root.service.readingsError : "")
             textFormat: Text.PlainText
-            color: root.barForeground
+            color: root.panelForeground
             opacity: 0.62
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
@@ -817,7 +819,7 @@ Panel {
                     width: parent.width
                     text: modelData.label ? String(modelData.label).toUpperCase() : ""
                     textFormat: Text.PlainText
-                    color: root.barForeground
+                    color: root.panelForeground
                     opacity: 0.62
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
@@ -838,7 +840,7 @@ Panel {
                     visible: modelData.heading !== ""
                     text: modelData.heading || ""
                     textFormat: Text.PlainText
-                    color: root.barForeground
+                    color: root.panelForeground
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.body
                     font.italic: true
@@ -852,7 +854,7 @@ Panel {
                       width: parent.width
                       text: modelData.t || ""
                       textFormat: Text.PlainText
-                      color: root.barForeground
+                      color: root.panelForeground
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.body
                       font.bold: modelData.r === true
@@ -876,7 +878,7 @@ Panel {
             width: parent.width
             text: root.service && root.service.office ? root.service.office.heading : ""
             textFormat: Text.PlainText
-            color: root.barForeground
+            color: root.panelForeground
             opacity: 0.62
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
@@ -907,7 +909,7 @@ Panel {
                 text: modelData.shortName
                 selected: root.hourActive(modelData.id)
                 bordered: true
-                foreground: root.barForeground
+                foreground: root.panelForeground
                 onClicked: {
                   if (root.service) root.service.selectedHourId = modelData.id
                 }
@@ -940,7 +942,7 @@ Panel {
                     width: parent.width
                     text: modelData.label ? String(modelData.label).toUpperCase() : ""
                     textFormat: Text.PlainText
-                    color: root.barForeground
+                    color: root.panelForeground
                     opacity: 0.62
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
@@ -950,7 +952,7 @@ Panel {
                     width: parent.width
                     text: modelData.body || ""
                     textFormat: Text.PlainText
-                    color: root.barForeground
+                    color: root.panelForeground
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.body
                     wrapMode: Text.WordWrap

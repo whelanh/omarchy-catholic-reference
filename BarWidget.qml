@@ -16,9 +16,6 @@ BarWidget {
     settings: root.settings
   }
 
-  readonly property color barForeground: bar ? bar.barForeground : Color.foreground
-  readonly property color glyphColor: office.currentHour ? Color.accent : barForeground
-
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
 
   function open() {
@@ -74,12 +71,12 @@ BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
+    active: !!office.currentHour
     tooltipText: office.tooltipText
-    foreground: root.glyphColor
     iconComponent: Component {
       ChiRho {
         anchors.fill: parent
-        foreground: button.foreground
+        foreground: button.active && button.useActiveColor ? button.activeColor : button.foreground
         size: Math.min(width, height)
       }
     }
