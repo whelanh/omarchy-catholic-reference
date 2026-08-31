@@ -254,8 +254,24 @@ function readReference(reference) {
 function randomVerse() {
   const verses = loadBible()
   if (verses.length === 0) { status("No Bible data available."); return }
-  const v = verses[Math.floor(Math.random() * verses.length)]
-  result(`${v.book} ${v.ref}`, v.text)
+  const i = Math.floor(Math.random() * verses.length)
+  const v = verses[i]
+  const chapter = v.ref.split(":")[0]
+
+  // Give a little context: one verse before and after, within the chapter.
+  let start = i
+  let end = i
+  if (i > 0 && verses[i - 1].book === v.book && verses[i - 1].ref.split(":")[0] === chapter) start = i - 1
+  if (i + 1 < verses.length && verses[i + 1].book === v.book && verses[i + 1].ref.split(":")[0] === chapter) end = i + 1
+
+  const startVerse = verses[start].ref.split(":")[1]
+  const endVerse = verses[end].ref.split(":")[1]
+  const reference = start === end
+    ? `${v.book} ${chapter}:${startVerse}`
+    : `${v.book} ${chapter}:${startVerse}-${endVerse}`
+
+  const text = verses.slice(start, end + 1).map((x) => x.text).join(" ")
+  result(reference, text)
 }
 
 function randomCatechism() {
