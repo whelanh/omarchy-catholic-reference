@@ -103,6 +103,19 @@ Panel {
     searchProc.running = true
   }
 
+  function randomSearch() {
+    if (root.currentTab !== "bible" && root.currentTab !== "catechism") return
+    resultModel.clear()
+    root.query = ""
+    root.statusText = "Searching…"
+    root.runningKind = root.currentTab
+    searchProc.command = [
+      root.scriptPath, "random",
+      root.runningKind === "bible" ? "bible" : "catechism"
+    ]
+    searchProc.running = true
+  }
+
   function parseSearchOutput(raw) {
     if (root.runningKind !== root.currentTab) return
     var lines = String(raw || "").split("\n")
@@ -376,13 +389,13 @@ Panel {
           Row {
             id: quickSearches
             width: parent.width
-            visible: root.query.trim() === "" && resultModel.count === 0
+            visible: root.query.trim() === ""
             spacing: Style.spacing.xs
 
             Repeater {
               model: root.currentTab === "bible"
-                ? ["love", "faith", "peace", "wisdom"]
-                : ["prayer", "sacrament", "charity", "grace"]
+                ? ["random", "love", "faith", "peace", "wisdom"]
+                : ["random", "prayer", "sacrament", "charity", "grace"]
 
               delegate: Rectangle {
                 required property string modelData
@@ -412,8 +425,12 @@ Panel {
                   hoverEnabled: true
                   cursorShape: Qt.PointingHandCursor
                   onClicked: {
-                    searchField.text = parent.modelData
-                    searchField.forceActiveFocus()
+                    if (parent.modelData === "random") {
+                      root.randomSearch()
+                    } else {
+                      searchField.text = parent.modelData
+                      searchField.forceActiveFocus()
+                    }
                   }
                 }
               }
@@ -438,7 +455,7 @@ Panel {
           Row {
             id: statusRow
             width: parent.width
-            visible: root.query.trim() !== ""
+            visible: resultModel.count > 0 || root.query.trim() !== ""
             spacing: Style.spacing.sm
 
             Text {
@@ -472,7 +489,7 @@ Panel {
           Flickable {
             id: resultList
             width: parent.width
-            visible: root.query.trim() !== ""
+            visible: resultModel.count > 0 || root.query.trim() !== ""
             height: Math.min(Style.space(320), Math.max(Style.space(96), resultStack.implicitHeight))
             clip: true
             contentWidth: width

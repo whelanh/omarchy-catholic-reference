@@ -251,6 +251,20 @@ function readReference(reference) {
   if (found === 0) status("Reference not found: " + reference)
 }
 
+function randomVerse() {
+  const verses = loadBible()
+  if (verses.length === 0) { status("No Bible data available."); return }
+  const v = verses[Math.floor(Math.random() * verses.length)]
+  result(`${v.book} ${v.ref}`, v.text)
+}
+
+function randomCatechism() {
+  const paragraphs = loadCatechism()
+  if (paragraphs.length === 0) { status("No Catechism data available."); return }
+  const p = paragraphs[Math.floor(Math.random() * paragraphs.length)]
+  result("CCC " + p.id, p.text)
+}
+
 function usage() {
   process.stdout.write(
     [
@@ -258,6 +272,7 @@ function usage() {
       "  omarchy-catholic search bible QUERY",
       "  omarchy-catholic search catechism QUERY",
       "  omarchy-catholic read BOOK CH:V",
+      "  omarchy-catholic random bible|catechism",
       "  omarchy-catholic readings [YYYY-MM-DD] [--refresh]",
       "",
       "Fuzzy search runs locally over the bundled Douay-Rheims Bible and the",
@@ -530,6 +545,11 @@ function main() {
     else { status("Unknown search target. Use bible or catechism."); process.exit(2) }
   } else if (cmd === "read") {
     readReference(args.slice(1).join(" "))
+  } else if (cmd === "random") {
+    const kind = args[1]
+    if (kind === "bible") randomVerse()
+    else if (kind === "catechism") randomCatechism()
+    else { status("Unknown random target. Use bible or catechism."); process.exit(2) }
   } else if (cmd === "readings") {
     const refresh = args.indexOf("--refresh") >= 0
     const dateArg = args[1] && args[1] !== "--refresh" ? args[1] : ""
