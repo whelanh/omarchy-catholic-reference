@@ -22,6 +22,7 @@ const fs = require("fs")
 const os = require("os")
 const https = require("https")
 const path = require("path")
+const zlib = require("zlib")
 
 const SCRIPT_ROOT = path.resolve(__dirname, "..")
 const DATA_ROOT = path.join(SCRIPT_ROOT, "data")
@@ -281,6 +282,41 @@ function randomCatechism() {
   result("CCC " + p.id, p.text)
 }
 
+// --- Catena Aurea commentary ----------------------------------------------
+
+let catenaCache = null
+
+function loadCatena() {
+  if (catenaCache) return catenaCache
+  const file = path.join(DATA_ROOT, "catena.json.gz")
+  try {
+    const gz = fs.readFileSync(file)
+    catenaCache = JSON.parse(zlib.gunzipSync(gz).toString("utf8"))
+  } catch (e) {
+    catenaCache = []
+  }
+  return catenaCache
+}
+
+function commentaryLookup(reference) {
+  const m = String(reference || "").trim().match(/^(.+?)\s+(\d+):(\d+)(?:-(\d+))?$/)
+  if (!m) {
+    process.stdout.write(JSON.stringify({ reference: reference || "", p: [] }) + "\n")
+    return
+  }
+  const book = m[1]
+  const chapter = parseInt(m[2], 10)
+  const verse = parseInt(m[3], 10)
+  const catena = loadCatena()
+  for (const s of catena) {
+    if (s.b === book && s.c === chapter && verse >= s.s && verse <= s.e) {
+      process.stdout.write(JSON.stringify({ reference: reference, p: s.p }) + "\n")
+      return
+    }
+  }
+  process.stdout.write(JSON.stringify({ reference: reference, p: [] }) + "\n")
+}
+
 function usage() {
   process.stdout.write(
     [
@@ -289,6 +325,7 @@ function usage() {
       "  omarchy-catholic search catechism QUERY",
       "  omarchy-catholic read BOOK CH:V",
       "  omarchy-catholic random bible|catechism",
+      "  omarchy-catholic commentary BOOK CH:V",
       "  omarchy-catholic readings [YYYY-MM-DD] [--refresh]",
       "",
       "Fuzzy search runs locally over the bundled Douay-Rheims Bible and the",
@@ -566,6 +603,8 @@ function main() {
     if (kind === "bible") randomVerse()
     else if (kind === "catechism") randomCatechism()
     else { status("Unknown random target. Use bible or catechism."); process.exit(2) }
+  } else if (cmd === "commentary") {
+    commentaryLookup(args.slice(1).join(" "))
   } else if (cmd === "readings") {
     const refresh = args.indexOf("--refresh") >= 0
     const dateArg = args[1] && args[1] !== "--refresh" ? args[1] : ""
