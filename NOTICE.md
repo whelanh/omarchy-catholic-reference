@@ -17,6 +17,18 @@ Readings tab only, fetches the day's Mass readings from universalis.com.
   shepherd" is Psalm 22 in the Douay-Rheims).
 - Regenerate the index with: `node tools/build-data.mjs path/to/DRC.json`.
 
+## Catena Aurea commentary (four Gospels)
+
+- Source: the public-domain OSIS XML at
+  [lemtom/catena](https://github.com/lemtom/catena) (`catena.xml`), which is
+  the source of the CrossWire SWORD `Catena` module.
+- The Catena Aurea ("Golden Chain") is St. Thomas Aquinas' compilation of
+  patristic quotations on Matthew, Mark, Luke, and John, in Blessed John
+  Henry Newman's 1842 English translation. The text is public domain.
+- The bundled `data/catena.json.gz` is a gzip-compressed verse-range index
+  (commentator names and quotations per passage).
+- Regenerate with: `node tools/build-catena.mjs path/to/catena.xml`.
+
 ## Catechism of the Catholic Church
 
 - Source: [aseemsavio/catholicism-in-json](https://github.com/aseemsavio/catholicism-in-json),

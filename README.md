@@ -1,9 +1,10 @@
 # Catholic Reference for Omarchy
 
 An Omarchy Quattro bar widget with a theme-colored Chi-Rho icon and a
-five-tab panel: fuzzy search of the **Douay-Rheims Bible** and the
-**Catechism of the Catholic Church**, common **Catholic prayers**, the daily
-**Mass readings**, and a bundled **Liturgy of the Hours**.
+five-tab panel: fuzzy search of the **Douay-Rheims Bible** (with **Catena
+Aurea** commentary), the **Catechism of the Catholic Church**, common
+**Catholic prayers**, the daily **Mass readings**, and a bundled **Liturgy of
+the Hours**.
 
 Plugin id: `io.github.whelanh.catholic-reference`
 
@@ -12,7 +13,10 @@ Plugin id: `io.github.whelanh.catholic-reference`
 - **Bible tab** — search the full 73-book Douay-Rheims (Challoner) text by
   word, phrase, or reference. Search is fuzzy: type `god so loved` and
   John 3:16 comes back without needing the exact wording. References like
-  `John 3:16` or `Genesis 1` resolve directly. Click a result to copy it.
+  `John 3:16` or `Genesis 1` resolve directly. Click a result to copy it and
+  pin it with **Catena Aurea** commentary (Thomas Aquinas' Golden Chain, on
+  the four Gospels); the `random` chip does the same for a random passage.
+  `Esc` or Back returns to the results.
 - **Catechism tab** — fuzzy search all 2865 paragraphs of the Catechism of
   the Catholic Church. Click a paragraph to copy it with its CCC number.
 - **Prayers tab** — the bundled `data/prayers.json` (Our Father, Hail Mary,
@@ -45,7 +49,8 @@ network access; everything else is fully offline.
 - **Left click** the Chi-Rho in the bar to open or close the panel.
 - **Bible / Catechism tabs:** type to search (fuzzy, debounced). `↑`/`↓` move
   the cursor, `Enter` copies the selected result, `Esc` returns focus from the
-  search field, then `Esc` closes the panel.
+  search field, then `Esc` closes the panel. In the Bible tab, `Enter` or a
+  click pins the verse with commentary; `Esc`/Back returns to the list.
 - **Prayers tab:** click a prayer to read it in English and Latin.
 - **Readings tab:** today's Mass readings load automatically; click Refresh to
   force a re-fetch.
@@ -56,6 +61,8 @@ network access; everything else is fully offline.
 ## Data and privacy
 
 - The Douay-Rheims Bible is public domain; the search index is `data/bible.tsv`.
+- The Catena Aurea commentary (four Gospels) is bundled, gzip-compressed, as
+  `data/catena.json.gz`; it is public domain.
 - The Catechism is bundled as `data/catechism.json`.
 - The office (psalms, canticles, readings, collects) is bundled as
   `data/office.json`.
@@ -71,11 +78,14 @@ The bundled data can be rebuilt from the upstream sources:
 ```bash
 node tools/build-data.mjs path/to/DRC.json      # writes data/bible.tsv + data/books.json
 node tools/build-office.mjs path/to/DRC.json    # writes data/office.json
+node tools/build-catena.mjs path/to/catena.xml  # writes data/catena.json.gz
 ```
 
 `DRC.json` is the `formats/json/DRC.json` file from the
 [scrollmapper/bible_databases](https://github.com/scrollmapper/bible_databases)
-repository. See [NOTICE.md](NOTICE.md) for sources and licensing.
+repository. `catena.xml` is the OSIS source from
+[lemtom/catena](https://github.com/lemtom/catena). See [NOTICE.md](NOTICE.md)
+for sources and licensing.
 
 ## Development checks
 
