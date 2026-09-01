@@ -24,6 +24,12 @@ Panel {
   property string runningKind: ""
   property string selectedPrayerId: ""
 
+  property var pinnedResult: null
+  property string commentaryText: ""
+  property bool commentaryLoading: false
+  property bool pendingPin: false
+  readonly property bool showingPinned: pinnedResult !== null
+
   readonly property var barIdentity: hostWidget || root
   // Popup text must not inherit the wallpaper-adaptive transparent bar color.
   readonly property color panelForeground: (Color.popups.text !== undefined) ? Color.popups.text : Color.foreground
@@ -46,7 +52,7 @@ Panel {
   function open() {
     controller.show()
     Qt.callLater(function() {
-      if (root.currentTab === "bible" || root.currentTab === "catechism") searchField.forceActiveFocus()
+      if (!root.showingPinned && (root.currentTab === "bible" || root.currentTab === "catechism")) searchField.forceActiveFocus()
       if (root.currentTab === "readings" && root.service) root.service.loadReadings()
     })
   }
@@ -64,6 +70,7 @@ Panel {
     if (root.currentTab === tab) return
     root.currentTab = tab
     root.query = ""
+    root.unpinResult()
     resultModel.clear()
     root.selectedIndex = 0
     root.statusText = emptyStatus()
@@ -81,6 +88,25 @@ Panel {
       : "Search the Catechism by word or phrase."
   }
 
+  function parseJson(raw, fallback) {
+    try { return JSON.parse(String(raw || "")) } catch (e) { return fallback }
+  }
+
+  function pinResult(reference, verse) {
+    root.pinnedResult = { reference: reference, verse: verse }
+    root.commentaryText = ""
+    root.commentaryLoading = true
+    commentaryProc.command = [root.scriptPath, "commentary", reference]
+    commentaryProc.running = true
+    keyCatcher.forceActiveFocus()
+  }
+
+  function unpinResult() {
+    root.pinnedResult = null
+    root.commentaryText = ""
+    root.commentaryLoading = false
+  }
+
   function scheduleSearch() {
     root.selectedIndex = 0
     searchTimer.restart()
@@ -88,6 +114,8 @@ Panel {
 
   function runSearch() {
     resultModel.clear()
+    root.unpinResult()
+    root.pendingPin = false
     if (root.currentTab !== "bible" && root.currentTab !== "catechism") return
     if (root.query.trim() === "") {
       root.statusText = emptyStatus()
@@ -106,9 +134,11 @@ Panel {
   function randomSearch() {
     if (root.currentTab !== "bible" && root.currentTab !== "catechism") return
     resultModel.clear()
+    root.unpinResult()
     root.query = ""
     root.statusText = "Searching…"
     root.runningKind = root.currentTab
+    root.pendingPin = root.currentTab === "bible"
     searchProc.command = [
       root.scriptPath, "random",
       root.runningKind === "bible" ? "bible" : "catechism"
@@ -131,6 +161,13 @@ Panel {
     }
     if (found > 0) root.statusText = found + " result" + (found === 1 ? "" : "s") + " · click to copy"
     root.selectedIndex = 0
+    if (root.pendingPin) {
+      root.pendingPin = false
+      if (found >= 1) {
+        var row = resultModel.get(0)
+        root.pinResult(row.reference, row.verse)
+      }
+    }
   }
 
   function moveSelection(delta) {
@@ -151,7 +188,11 @@ Panel {
     var row = resultModel.get(index)
     var text = row.reference + " — " + row.verse
     Quickshell.execDetached(["bash", "-c", "printf %s " + Util.shellQuote(text) + " | wl-copy"])
-    root.close()
+    if (root.currentTab === "bible") {
+      root.pinResult(row.reference, row.verse)
+    } else {
+      root.close()
+    }
   }
 
   function switchPanel(direction) {
@@ -194,6 +235,20 @@ Panel {
     }
   }
 
+  Process {
+    id: commentaryProc
+    running: false
+    stdout: StdioCollector {
+      id: commentaryOutput
+      waitForEnd: true
+    }
+    onExited: function() {
+      root.commentaryLoading = false
+      var data = root.parseJson(commentaryOutput.text, null)
+      root.commentaryText = data && data.text ? data.text : ""
+    }
+  }
+
   KeyboardPanel {
     id: popup
     anchorItem: root.anchorItem
@@ -208,7 +263,14 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       blocked: searchField.activeFocus
-      onCloseRequested: root.close()
+      onCloseRequested: {
+        if (root.showingPinned) {
+          root.unpinResult()
+          Qt.callLater(function() { searchField.forceActiveFocus() })
+        } else {
+          root.close()
+        }
+      }
       onMoveRequested: function(dx, dy) { if (dy !== 0) root.moveSelection(dy) }
       onActivateRequested: root.activateSelected()
       onTabRequested: function(direction) { root.switchPanel(direction) }
@@ -338,6 +400,7 @@ Panel {
           TextField {
             id: searchField
             width: parent.width
+            visible: !root.showingPinned
             placeholderText: root.currentTab === "bible" ? "Search the Bible…" : "Search the Catechism…"
             foreground: root.panelForeground
             accent: Color.accent
@@ -389,7 +452,7 @@ Panel {
           Row {
             id: quickSearches
             width: parent.width
-            visible: root.query.trim() === ""
+            visible: !root.showingPinned && root.query.trim() === ""
             spacing: Style.spacing.xs
 
             Repeater {
@@ -440,7 +503,7 @@ Panel {
           Text {
             id: introText
             width: parent.width
-            visible: root.query.trim() === "" && resultModel.count === 0
+            visible: !root.showingPinned && root.query.trim() === "" && resultModel.count === 0
             text: root.currentTab === "bible"
               ? "Try a theme, phrase, or verse reference. Click a result to copy it."
               : "Try a topic or phrase. Click a paragraph to copy it."
@@ -455,7 +518,7 @@ Panel {
           Row {
             id: statusRow
             width: parent.width
-            visible: resultModel.count > 0 || root.query.trim() !== ""
+            visible: !root.showingPinned && (resultModel.count > 0 || root.query.trim() !== "")
             spacing: Style.spacing.sm
 
             Text {
@@ -489,7 +552,7 @@ Panel {
           Flickable {
             id: resultList
             width: parent.width
-            visible: resultModel.count > 0 || root.query.trim() !== ""
+            visible: !root.showingPinned && (resultModel.count > 0 || root.query.trim() !== "")
             height: Math.min(Style.space(320), Math.max(Style.space(96), resultStack.implicitHeight))
             clip: true
             contentWidth: width
@@ -606,6 +669,97 @@ Panel {
               }
             }
           }
+        Column {
+          id: pinnedView
+          width: parent.width
+          visible: root.showingPinned
+          spacing: Style.spacing.md
+
+          Row {
+            width: parent.width
+            spacing: Style.spacing.sm
+
+            Button {
+              id: backButton
+              text: "Back"
+              selected: false
+              bordered: true
+              foreground: root.panelForeground
+              onClicked: {
+                root.unpinResult()
+                searchField.forceActiveFocus()
+              }
+            }
+
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.pinnedResult ? root.pinnedResult.reference : ""
+              textFormat: Text.PlainText
+              color: Color.accent
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              font.bold: true
+            }
+          }
+
+          Text {
+            width: parent.width
+            text: root.pinnedResult ? root.pinnedResult.verse : ""
+            textFormat: Text.PlainText
+            color: root.panelForeground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            wrapMode: Text.WordWrap
+          }
+
+          Text {
+            width: parent.width
+            text: "COMMENTARY"
+            textFormat: Text.PlainText
+            color: root.panelForeground
+            opacity: 0.5
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.bold: true
+          }
+
+          Text {
+            width: parent.width
+            visible: root.commentaryLoading
+            text: "Loading commentary…"
+            textFormat: Text.PlainText
+            color: root.panelForeground
+            opacity: 0.62
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+
+          Flickable {
+            width: parent.width
+            visible: !root.commentaryLoading
+            height: Math.min(Style.space(400), commentaryColumn.implicitHeight)
+            clip: true
+            contentWidth: width
+            contentHeight: commentaryColumn.implicitHeight
+            boundsBehavior: Flickable.StopAtBounds
+
+            Column {
+              id: commentaryColumn
+              width: parent.width
+              spacing: Style.spacing.xs
+
+              Text {
+                width: parent.width
+                text: root.commentaryText !== "" ? root.commentaryText : "No commentary available for this verse."
+                textFormat: Text.PlainText
+                color: root.panelForeground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                wrapMode: Text.WordWrap
+              }
+            }
+          }
+        }
         }
 
         Column {
