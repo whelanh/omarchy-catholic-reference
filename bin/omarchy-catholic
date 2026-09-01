@@ -301,7 +301,7 @@ function loadCatena() {
 function commentaryLookup(reference) {
   const m = String(reference || "").trim().match(/^(.+?)\s+(\d+):(\d+)(?:-(\d+))?$/)
   if (!m) {
-    process.stdout.write(JSON.stringify({ text: "", reference: reference || "" }) + "\n")
+    process.stdout.write(JSON.stringify({ reference: reference || "", p: [] }) + "\n")
     return
   }
   const book = m[1]
@@ -310,11 +310,11 @@ function commentaryLookup(reference) {
   const catena = loadCatena()
   for (const s of catena) {
     if (s.b === book && s.c === chapter && verse >= s.s && verse <= s.e) {
-      process.stdout.write(JSON.stringify({ text: s.t, reference: reference }) + "\n")
+      process.stdout.write(JSON.stringify({ reference: reference, p: s.p }) + "\n")
       return
     }
   }
-  process.stdout.write(JSON.stringify({ text: "", reference: reference }) + "\n")
+  process.stdout.write(JSON.stringify({ reference: reference, p: [] }) + "\n")
 }
 
 function usage() {

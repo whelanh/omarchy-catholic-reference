@@ -49,16 +49,29 @@ function parseRef(ref) {
   return { b: book, c: parseInt(m[2], 10), s: start, e: end }
 }
 
-function cleanBody(body) {
-  // Drop the verse-quote paragraph(s) (the <p osisID="..."> blocks).
-  let text = body.replace(/<p[^>]*osisID="[^"]*"[^>]*>[\s\S]*?<\/p>/g, " ")
-  // Paragraphs -> newlines, inline markup removed.
-  text = text.replace(/<p[^>]*>/g, "\n").replace(/<\/p>/g, "\n")
-  text = decodeHtml(text)
-  text = text.replace(/[ \t]+/g, " ")
-  text = text.replace(/\n[ \t]*/g, "\n")
-  text = text.replace(/\n{3,}/g, "\n\n")
-  return text.trim()
+// Split a section body into [author, text] paragraphs. The verse-quote
+// paragraphs (<p osisID="...">) are dropped; the bold author attribution in
+// each remaining paragraph becomes a separate leading field so the panel can
+// render it in bold.
+function parseParagraphs(body) {
+  let src = body.replace(/<p[^>]*osisID="[^"]*"[^>]*>[\s\S]*?<\/p>/g, "")
+  const paras = []
+  const pRe = /<p[^>]*>([\s\S]*?)<\/p>/g
+  let m
+  while ((m = pRe.exec(src)) !== null) {
+    let inner = m[1]
+    const authorRe = /<hi type="bold">([\s\S]*?)<\/hi>/
+    const am = inner.match(authorRe)
+    let author = ""
+    if (am) {
+      author = decodeHtml(am[1]).replace(/\s+/g, " ").trim()
+      inner = inner.replace(authorRe, " ")
+    }
+    const text = decodeHtml(inner).replace(/\s+/g, " ").trim()
+    if (!author && !text) continue
+    paras.push([author, text])
+  }
+  return paras
 }
 
 function main() {
@@ -75,9 +88,9 @@ function main() {
   while ((m = divRe.exec(xml)) !== null) {
     const ref = parseRef(m[1])
     if (!ref) continue
-    const text = cleanBody(m[2])
-    if (!text) continue
-    sections.push({ b: ref.b, c: ref.c, s: ref.s, e: ref.e, t: text })
+    const paras = parseParagraphs(m[2])
+    if (paras.length === 0) continue
+    sections.push({ b: ref.b, c: ref.c, s: ref.s, e: ref.e, p: paras })
   }
 
   sections.sort((a, b2) => {

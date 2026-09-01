@@ -25,7 +25,7 @@ Panel {
   property string selectedPrayerId: ""
 
   property var pinnedResult: null
-  property string commentaryText: ""
+  property var commentaryParagraphs: []
   property bool commentaryLoading: false
   property bool pendingPin: false
   readonly property bool showingPinned: pinnedResult !== null
@@ -94,7 +94,7 @@ Panel {
 
   function pinResult(reference, verse) {
     root.pinnedResult = { reference: reference, verse: verse }
-    root.commentaryText = ""
+    root.commentaryParagraphs = []
     root.commentaryLoading = true
     commentaryProc.command = [root.scriptPath, "commentary", reference]
     commentaryProc.running = true
@@ -103,7 +103,7 @@ Panel {
 
   function unpinResult() {
     root.pinnedResult = null
-    root.commentaryText = ""
+    root.commentaryParagraphs = []
     root.commentaryLoading = false
   }
 
@@ -245,7 +245,7 @@ Panel {
     onExited: function() {
       root.commentaryLoading = false
       var data = root.parseJson(commentaryOutput.text, null)
-      root.commentaryText = data && data.text ? data.text : ""
+      root.commentaryParagraphs = data && Array.isArray(data.p) ? data.p : []
     }
   }
 
@@ -746,16 +746,49 @@ Panel {
             Column {
               id: commentaryColumn
               width: parent.width
-              spacing: Style.spacing.xs
+              spacing: Style.spacing.sm
 
               Text {
                 width: parent.width
-                text: root.commentaryText !== "" ? root.commentaryText : "No commentary available for this verse."
+                visible: root.commentaryParagraphs.length === 0
+                text: "No commentary available for this verse."
                 textFormat: Text.PlainText
                 color: root.panelForeground
+                opacity: 0.62
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
                 wrapMode: Text.WordWrap
+              }
+
+              Repeater {
+                model: root.commentaryParagraphs
+                delegate: Column {
+                  required property var modelData
+                  width: commentaryColumn.width
+                  spacing: Style.spacing.xs
+
+                  Text {
+                    width: parent.width
+                    visible: modelData[0] !== ""
+                    text: modelData[0]
+                    textFormat: Text.PlainText
+                    color: root.panelForeground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                    font.bold: true
+                    wrapMode: Text.WordWrap
+                  }
+                  Text {
+                    width: parent.width
+                    visible: modelData[1] !== ""
+                    text: modelData[1]
+                    textFormat: Text.PlainText
+                    color: root.panelForeground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                    wrapMode: Text.WordWrap
+                  }
+                }
               }
             }
           }
