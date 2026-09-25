@@ -31,6 +31,14 @@ Plugin id: `io.github.whelanh.catholic-reference`
 - **Hours tab** — the office for Morning, Daytime, Evening, and Night Prayer.
   The current hour is highlighted and selected by default; the liturgical day
   (General Roman Calendar, approximated) is shown above the text.
+- **Browse** — with nothing typed, the Bible tab opens on the Old and New
+  Testaments by division (Pentateuch, Historical Books, Wisdom Books, the
+  Prophets; Gospels, Acts, Letters of St. Paul, Catholic Letters,
+  Revelation), and the Catechism tab on its Prologue and four Parts down to
+  each Article, with paragraph numbers. Open a chapter or section to read it
+  as running text; ‹ › step to the next one. In a chapter, click a verse
+  number for its card and Catena Aurea commentary; in the Catechism, click a
+  paragraph number to copy it, or a cross-reference to follow it.
 - **Pop out** — the header's **Pop out** button moves the reader into a
   resizable window with room for longer passages. Closing the window returns
   it to the bar popup. Scriptable too:
@@ -100,6 +108,7 @@ for sources and licensing.
 omarchy plugin validate .
 node tests/model.test.js
 node tests/search.test.js
+node tests/reader.test.js
 node --check bin/omarchy-catholic
 qmllint -I "$OMARCHY_PATH/shell" BarWidget.qml Panel.qml Service.qml ChiRho.qml
 ```

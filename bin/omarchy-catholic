@@ -15,6 +15,8 @@
 //   search bible QUERY       fuzzy text search + reference lookup
 //   search catechism QUERY   fuzzy search over CCC paragraphs
 //   read BOOK CH:V           exact reference lookup
+//   chapter BOOK CH          one chapter as JSON, for the reader
+//   ccc FIRST LAST           a range of CCC paragraphs as JSON, with headings
 //
 // Fuzzy matching is subsequence-based, so "god so loved" finds
 // "For God so loved the world…" without an exact quote.
@@ -356,6 +358,42 @@ function readReference(reference) {
     }
   }
   if (found === 0) status("Reference not found: " + reference)
+}
+
+// One chapter for the reader view:
+//   {book, chapter, chapters, poetic, verses: [[n, text]]}
+function chapterJson(args) {
+  const chapter = parseInt(args[args.length - 1], 10)
+  const book = bookForToken(loadBooks(), args.slice(0, -1).join(" "))
+  const out = { book: book ? book.name : "", chapter, chapters: 0, poetic: false, verses: [] }
+  if (book) {
+    const outline = readJson(path.join(DATA_ROOT, "outline.json"))
+    out.poetic = outline.poetic.indexOf(book.name) >= 0
+    for (const v of loadBible()) {
+      if (v.book !== book.name) continue
+      const [c, n] = v.ref.split(":").map((x) => parseInt(x, 10))
+      out.chapters = Math.max(out.chapters, c)
+      if (c === chapter) out.verses.push([n, v.text])
+    }
+  }
+  process.stdout.write(JSON.stringify(out) + "\n")
+}
+
+// A run of Catechism paragraphs for the reader view, with the sub-headings
+// ("I. The Desire for God") that start inside it:
+//   {first, last, paragraphs: [[n, text]], headings: [[n, title]]}
+function catechismRangeJson(args) {
+  const first = parseInt(args[0], 10)
+  const last = parseInt(args[1] || args[0], 10)
+  const inRange = (n) => n >= first && n <= last
+  const outline = readJson(path.join(DATA_ROOT, "outline.json"))
+  const out = {
+    first,
+    last,
+    paragraphs: loadCatechism().filter((p) => inRange(p.id)).map((p) => [p.id, p.text]),
+    headings: outline.catechismHeadings.filter((h) => inRange(h[0])),
+  }
+  process.stdout.write(JSON.stringify(out) + "\n")
 }
 
 function randomVerse() {
@@ -709,6 +747,10 @@ function main() {
     if (kind === "bible") randomVerse()
     else if (kind === "catechism") randomCatechism()
     else { status("Unknown random target. Use bible or catechism."); process.exit(2) }
+  } else if (cmd === "chapter") {
+    chapterJson(args.slice(1))
+  } else if (cmd === "ccc") {
+    catechismRangeJson(args.slice(1))
   } else if (cmd === "commentary") {
     commentaryLookup(args.slice(1).join(" "))
   } else if (cmd === "readings") {

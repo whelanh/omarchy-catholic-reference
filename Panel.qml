@@ -106,6 +106,7 @@ Panel {
     root.currentTab = tab
     root.query = ""
     root.unpinResult()
+    root.closeReader()
     resultModel.clear()
     root.selectedIndex = 0
     root.statusText = emptyStatus()
@@ -150,6 +151,7 @@ Panel {
   function runSearch() {
     resultModel.clear()
     root.unpinResult()
+    root.closeReader()
     root.pendingPin = false
     if (root.currentTab !== "bible" && root.currentTab !== "catechism") return
     if (root.query.trim() === "") {
@@ -170,6 +172,7 @@ Panel {
     if (root.currentTab !== "bible" && root.currentTab !== "catechism") return
     resultModel.clear()
     root.unpinResult()
+    root.closeReader()
     root.query = ""
     root.statusText = "Searching…"
     root.runningKind = root.currentTab
@@ -247,7 +250,10 @@ Panel {
     if (index < 0 || index >= resultModel.count) return
     var row = resultModel.get(index)
     if (row.fill !== "") {
-      root.openNav(row.fill)
+      // "Matthew " (a book) searches for its chapters; "Matthew 4" reads it.
+      var chapter = row.fill.match(/^(.+) (\d+)$/)
+      if (chapter) root.openChapter(chapter[1], parseInt(chapter[2], 10))
+      else root.openNav(row.fill)
       return
     }
     var text = row.reference + " — " + row.verse
@@ -257,6 +263,229 @@ Panel {
     } else {
       root.close()
     }
+  }
+
+  // --- Browse outline and reader ------------------------------------------
+
+  // What the reader shows: {kind: "bible", book, chapter} or
+  // {kind: "catechism", title, first, last}. Null when not reading.
+  property var reading: null
+  property var readingData: null
+  property string readerNote: ""
+  // Outline groups the user has opened, keyed by path ("0.2", "c1.0").
+  property var expanded: ({})
+  readonly property bool showingReader: reading !== null && !showingPinned
+  readonly property bool showingBrowse: !showingPinned && reading === null && query.trim() === ""
+    && resultModel.count === 0 && (currentTab === "bible" || currentTab === "catechism")
+
+  function openChapter(book, chapter) {
+    root.reading = { kind: "bible", book: book, chapter: chapter }
+    root.loadReading([root.scriptPath, "chapter", book, String(chapter)])
+  }
+
+  function openCatechism(title, first, last) {
+    root.reading = { kind: "catechism", title: title, first: first, last: last }
+    root.loadReading([root.scriptPath, "ccc", String(first), String(last)])
+  }
+
+  function loadReading(command) {
+    root.readingData = null
+    root.readerNote = ""
+    readerList.contentY = 0
+    readerProc.command = command
+    readerProc.running = true
+    keyCatcher.forceActiveFocus()
+  }
+
+  function closeReader() {
+    root.readingData = null
+    root.reading = null
+  }
+
+  function toggleExpanded(key) {
+    var next = {}
+    for (var k in root.expanded) next[k] = root.expanded[k]
+    next[key] = !next[key]
+    root.expanded = next
+  }
+
+  // Catechism outline leaves in reading order, for previous/next.
+  function catechismLeaves() {
+    var out = []
+    function walk(nodes) {
+      for (var i = 0; i < nodes.length; i++) {
+        if (nodes[i].c) walk(nodes[i].c)
+        else out.push(nodes[i])
+      }
+    }
+    walk(root.service && root.service.outline ? root.service.outline.catechism : [])
+    return out
+  }
+
+  function stepReading(delta) {
+    var r = root.reading
+    if (!r) return
+    if (r.kind === "bible") {
+      var total = root.readingData ? root.readingData.chapters : 0
+      var next = r.chapter + delta
+      if (next >= 1 && next <= total) root.openChapter(r.book, next)
+      return
+    }
+    var leaves = root.catechismLeaves()
+    for (var i = 0; i < leaves.length; i++) {
+      if (leaves[i].a === r.first) {
+        var leaf = leaves[i + delta]
+        if (leaf) root.openCatechism(leaf.t, leaf.a, leaf.b)
+        return
+      }
+    }
+  }
+
+  function canStep(delta) {
+    var r = root.reading
+    if (!r) return false
+    if (r.kind === "bible") {
+      var next = r.chapter + delta
+      return next >= 1 && root.readingData !== null && next <= root.readingData.chapters
+    }
+    if (delta < 0) return r.first > 1
+    return r.last < 2865
+  }
+
+  function readerTitle() {
+    var r = root.reading
+    if (!r) return ""
+    if (r.kind === "bible") return r.book + " " + r.chapter
+    return r.title
+  }
+
+  function readerRange() {
+    var r = root.reading
+    if (!r || r.kind !== "catechism") return ""
+    return r.first === r.last ? "CCC " + r.first : "CCC " + r.first + "–" + r.last
+  }
+
+  function escapeHtml(text) {
+    return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  }
+
+  // Rich text for the reader. Verse and paragraph numbers are links: a verse
+  // opens its card with commentary, a paragraph number copies the paragraph.
+  function readerHtml() {
+    var d = root.readingData
+    if (!d || !root.reading) return ""
+    var accent = String(Color.accent)
+    var parts = []
+    if (root.reading.kind === "bible") {
+      for (var i = 0; i < d.verses.length; i++) {
+        var v = d.verses[i]
+        parts.push("<a href=\"v:" + v[0] + "\" style=\"color:" + accent + "; text-decoration:none\"><b>" + v[0] + "</b></a>&nbsp;" + root.escapeHtml(v[1]))
+      }
+      return d.poetic ? parts.join("<br>") : parts.join(" &nbsp;")
+    }
+    var headings = {}
+    for (var h = 0; h < d.headings.length; h++) headings[d.headings[h][0]] = d.headings[h][1]
+    for (var j = 0; j < d.paragraphs.length; j++) {
+      var p = d.paragraphs[j]
+      if (headings[p[0]]) parts.push("<p><b>" + root.escapeHtml(headings[p[0]]) + "</b></p>")
+      var number = "<a href=\"p:" + p[0] + "\" style=\"color:" + accent + "; text-decoration:none\"><b>" + p[0] + "</b></a>&nbsp; "
+      parts.push(root.catechismHtml(p[1], number, accent))
+    }
+    return parts.join("")
+  }
+
+  // The Catechism text carries light markdown: blank lines between blocks,
+  // "> " quotations, *italics*, and cross-references like "(843, 2095-2109)",
+  // which become links to those paragraphs.
+  function catechismHtml(text, number, accent) {
+    var blocks = String(text).trim().split(/\n\s*\n+/)
+    var out = []
+    for (var i = 0; i < blocks.length; i++) {
+      var block = blocks[i].trim()
+      var quote = /^>/.test(block)
+      block = root.escapeHtml(block.replace(/^>\s?/gm, "").replace(/\*\*/g, ""))
+        .replace(/\*([^*\n]+)\*/g, "<i>$1</i>")
+        .replace(/\((\d+(?:-\d+)?(?:,\s*\d+(?:-\d+)?)*)\)/g, function(all, refs) {
+          return "(" + refs.split(/,\s*/).map(function(r) {
+            return "<a href=\"r:" + r + "\" style=\"color:" + accent + "; text-decoration:none\">" + r + "</a>"
+          }).join(", ") + ")"
+        })
+        .replace(/\n/g, "<br>")
+      if (i === 0) block = number + block
+      out.push(quote ? "<blockquote><i>" + block + "</i></blockquote>" : "<p>" + block + "</p>")
+    }
+    return out.join("")
+  }
+
+  function copyText(text) {
+    Quickshell.execDetached(["bash", "-c", "printf %s " + Util.shellQuote(text) + " | wl-copy"])
+  }
+
+  function readerLink(link) {
+    var d = root.readingData
+    if (!d) return
+    if (link.indexOf("r:") === 0) {
+      var range = link.substring(2).split("-")
+      var first = parseInt(range[0], 10)
+      var last = parseInt(range[1] || range[0], 10)
+      root.openCatechism(first === last ? "CCC " + first : "CCC " + first + "–" + last, first, last)
+      return
+    }
+    var n = parseInt(link.substring(2), 10)
+    var list = link.indexOf("v:") === 0 ? d.verses : d.paragraphs
+    for (var i = 0; i < list.length; i++) {
+      if (list[i][0] !== n) continue
+      if (link.indexOf("v:") === 0) {
+        var reference = d.book + " " + d.chapter + ":" + n
+        root.copyText(reference + " — " + list[i][1])
+        root.pinResult(reference, list[i][1])
+      } else {
+        root.copyText("CCC " + n + " — " + String(list[i][1]).trim())
+        root.readerNote = "Copied CCC " + n
+      }
+      return
+    }
+  }
+
+  // Visible outline rows for the current tab, flattened for a Repeater:
+  //   {type: "label", text}
+  //   {type: "group", key, text, detail, open, depth}
+  //   {type: "books", books: [{name, chapters}]}
+  //   {type: "leaf", text, detail, first, last, depth}
+  function browseRows() {
+    var outline = root.service && root.service.outline ? root.service.outline : null
+    var rows = []
+    if (!outline) return rows
+    if (root.currentTab === "bible") {
+      var testaments = outline.bible || []
+      for (var t = 0; t < testaments.length; t++) {
+        rows.push({ type: "label", text: testaments[t].name })
+        var divisions = testaments[t].divisions
+        for (var d = 0; d < divisions.length; d++) {
+          var key = t + "." + d
+          var count = divisions[d].books.length
+          rows.push({ type: "group", key: key, text: divisions[d].name,
+            detail: count + (count === 1 ? " book" : " books"), open: !!root.expanded[key], depth: 0 })
+          if (root.expanded[key]) rows.push({ type: "books", books: divisions[d].books })
+        }
+      }
+      return rows
+    }
+    function walk(nodes, prefix, depth) {
+      for (var i = 0; i < nodes.length; i++) {
+        var n = nodes[i]
+        var range = n.a === n.b ? "¶ " + n.a : "¶ " + n.a + "–" + n.b
+        if (n.c) {
+          var k = prefix + i
+          rows.push({ type: "group", key: k, text: n.t, detail: range, open: !!root.expanded[k], depth: depth })
+          if (root.expanded[k]) walk(n.c, k + ".", depth + 1)
+        } else {
+          rows.push({ type: "leaf", text: n.t, detail: range, first: n.a, last: n.b, depth: depth })
+        }
+      }
+    }
+    walk(outline.catechism || [], "c", 0)
+    return rows
   }
 
   function switchPanel(direction) {
@@ -285,6 +514,23 @@ Panel {
     interval: 160
     repeat: false
     onTriggered: root.runSearch()
+  }
+
+  Process {
+    id: readerProc
+    running: false
+    stdout: StdioCollector {
+      id: readerOutput
+      waitForEnd: true
+    }
+    onExited: function() {
+      if (root.reading === null) return
+      var data = root.parseJson(readerOutput.text, null)
+      root.readingData = data
+      if (!data || (data.verses && data.verses.length === 0) || (data.paragraphs && data.paragraphs.length === 0)) {
+        root.readerNote = "Nothing found for " + root.readerTitle()
+      }
+    }
   }
 
   Process {
@@ -330,6 +576,9 @@ Panel {
       onCloseRequested: {
         if (root.showingPinned) {
           root.unpinResult()
+          if (root.reading === null) Qt.callLater(function() { searchField.forceActiveFocus() })
+        } else if (root.reading !== null) {
+          root.closeReader()
           Qt.callLater(function() { searchField.forceActiveFocus() })
         } else {
           root.close()
@@ -536,7 +785,7 @@ Panel {
           Row {
             id: quickSearches
             width: parent.width
-            visible: !root.showingPinned && root.query.trim() === ""
+            visible: !root.showingPinned && !root.showingReader && root.query.trim() === ""
             spacing: Style.spacing.xs
 
             Repeater {
@@ -584,25 +833,157 @@ Panel {
             }
           }
 
-          Text {
-            id: introText
+          // With nothing typed, the tab opens on its outline: Old and New
+          // Testament divisions, or the Catechism's Parts down to Articles.
+          Flickable {
+            id: browseList
             width: parent.width
-            visible: !root.showingPinned && root.query.trim() === "" && resultModel.count === 0
-            text: root.currentTab === "bible"
-              ? "Try a theme, phrase, book, or verse reference. Click a result to copy it."
-              : "Try a topic or phrase. Click a paragraph to copy it."
-            textFormat: Text.PlainText
-            color: root.panelForeground
-            opacity: 0.58
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
-            wrapMode: Text.WordWrap
+            visible: root.showingBrowse
+            height: root.windowed ? root.fillHeight(searchArea.y + y) : Math.min(Style.space(420), browseColumn.implicitHeight)
+            clip: true
+            contentWidth: width
+            contentHeight: browseColumn.implicitHeight
+            boundsBehavior: Flickable.StopAtBounds
+
+            Column {
+              id: browseColumn
+              width: browseList.width
+              spacing: Style.spacing.xs
+
+              Repeater {
+                model: root.showingBrowse ? root.browseRows() : []
+
+                delegate: Item {
+                  id: browseRow
+                  required property var modelData
+                  readonly property int indent: (modelData.depth || 0) * Style.space(14)
+
+                  width: browseColumn.width
+                  height: modelData.type === "label"
+                    ? browseLabel.implicitHeight + Style.spacing.xs
+                    : modelData.type === "books"
+                      ? bookFlow.implicitHeight + Style.spacing.xs
+                      : Math.max(Style.space(30), rowTitle.implicitHeight + Style.space(12))
+
+                  Text {
+                    id: browseLabel
+                    visible: browseRow.modelData.type === "label"
+                    anchors.bottom: parent.bottom
+                    text: browseRow.modelData.type === "label" ? browseRow.modelData.text.toUpperCase() : ""
+                    textFormat: Text.PlainText
+                    color: root.panelForeground
+                    opacity: 0.55
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    font.letterSpacing: 1.2
+                  }
+
+                  Flow {
+                    id: bookFlow
+                    visible: browseRow.modelData.type === "books"
+                    x: Style.space(14)
+                    width: parent.width - x
+                    spacing: Style.spacing.xs
+
+                    Repeater {
+                      model: browseRow.modelData.type === "books" ? browseRow.modelData.books : []
+
+                      delegate: Rectangle {
+                        required property var modelData
+                        width: bookLabel.implicitWidth + Style.space(20)
+                        height: Style.space(28)
+                        radius: height / 2
+                        color: bookMouse.containsMouse
+                          ? Style.hoverFillFor(root.panelForeground, Color.accent)
+                          : "transparent"
+                        border.width: 1
+                        border.color: bookMouse.containsMouse ? Color.accent : Color.popups.border
+
+                        Text {
+                          id: bookLabel
+                          anchors.centerIn: parent
+                          text: parent.modelData.name + "  " + parent.modelData.chapters
+                          textFormat: Text.PlainText
+                          color: root.panelForeground
+                          opacity: 0.85
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.bodySmall
+                        }
+
+                        MouseArea {
+                          id: bookMouse
+                          anchors.fill: parent
+                          hoverEnabled: true
+                          cursorShape: Qt.PointingHandCursor
+                          onClicked: root.openNav(parent.modelData.name + " ")
+                        }
+                      }
+                    }
+                  }
+
+                  BorderSurface {
+                    visible: browseRow.modelData.type === "group" || browseRow.modelData.type === "leaf"
+                    x: browseRow.indent
+                    width: parent.width - x
+                    height: parent.height
+                    radius: Style.cornerRadius
+                    color: rowMouse.containsMouse ? Style.hoverFillFor(root.panelForeground, Color.accent) : "transparent"
+                    borderSpec: rowMouse.containsMouse
+                      ? Border.controlSpec("hover-cursor", root.panelForeground, Color.accent)
+                      : Border.flat(Color.popups.border, 1)
+
+                    Text {
+                      id: rowTitle
+                      anchors.left: parent.left
+                      anchors.leftMargin: Style.spacing.sm
+                      anchors.right: rowDetail.left
+                      anchors.rightMargin: Style.spacing.sm
+                      anchors.verticalCenter: parent.verticalCenter
+                      text: browseRow.modelData.type === "group"
+                        ? (browseRow.modelData.open ? "▾  " : "▸  ") + browseRow.modelData.text
+                        : browseRow.modelData.text || ""
+                      textFormat: Text.PlainText
+                      color: root.panelForeground
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.bodySmall
+                      font.bold: browseRow.modelData.type === "group" && (browseRow.modelData.depth || 0) === 0
+                      wrapMode: Text.WordWrap
+                    }
+
+                    Text {
+                      id: rowDetail
+                      anchors.right: parent.right
+                      anchors.rightMargin: Style.spacing.sm
+                      anchors.verticalCenter: parent.verticalCenter
+                      text: browseRow.modelData.detail || ""
+                      textFormat: Text.PlainText
+                      color: root.panelForeground
+                      opacity: 0.5
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
+
+                    MouseArea {
+                      id: rowMouse
+                      anchors.fill: parent
+                      hoverEnabled: true
+                      cursorShape: Qt.PointingHandCursor
+                      onClicked: {
+                        var row = browseRow.modelData
+                        if (row.type === "group") root.toggleExpanded(row.key)
+                        else root.openCatechism(row.text, row.first, row.last)
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
 
           Row {
             id: statusRow
             width: parent.width
-            visible: !root.showingPinned && (resultModel.count > 0 || root.query.trim() !== "")
+            visible: !root.showingPinned && !root.showingReader && (resultModel.count > 0 || root.query.trim() !== "")
             spacing: Style.spacing.sm
 
             Text {
@@ -638,7 +1019,7 @@ Panel {
           Flickable {
             id: resultList
             width: parent.width
-            visible: !root.showingPinned && (resultModel.count > 0 || root.query.trim() !== "")
+            visible: !root.showingPinned && !root.showingReader && (resultModel.count > 0 || root.query.trim() !== "")
             height: root.windowed ? root.fillHeight(searchArea.y + y) : Math.min(Style.space(320), Math.max(Style.space(96), resultStack.implicitHeight))
             clip: true
             contentWidth: width
@@ -762,6 +1143,129 @@ Panel {
               }
             }
           }
+        // Reading a whole chapter or Catechism section as running text.
+        Column {
+          id: readerView
+          width: parent.width
+          visible: root.showingReader
+          spacing: Style.spacing.md
+
+          Item {
+            width: parent.width
+            height: readerBack.implicitHeight
+
+            Button {
+              id: readerBack
+              text: "Back"
+              bordered: true
+              foreground: root.panelForeground
+              onClicked: {
+                root.closeReader()
+                searchField.forceActiveFocus()
+              }
+            }
+
+            Column {
+              anchors.left: readerBack.right
+              anchors.leftMargin: Style.spacing.sm
+              anchors.right: readerSteps.left
+              anchors.rightMargin: Style.spacing.sm
+              anchors.verticalCenter: parent.verticalCenter
+
+              Text {
+                width: parent.width
+                text: root.readerTitle()
+                textFormat: Text.PlainText
+                color: Color.accent
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+                elide: Text.ElideRight
+              }
+
+              Text {
+                width: parent.width
+                visible: text !== ""
+                text: root.readerNote !== "" ? root.readerNote : root.readerRange()
+                textFormat: Text.PlainText
+                color: root.panelForeground
+                opacity: 0.55
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                elide: Text.ElideRight
+              }
+            }
+
+            Row {
+              id: readerSteps
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.spacing.xs
+
+              Button {
+                text: "‹"
+                tooltipText: root.reading && root.reading.kind === "bible" ? "Previous chapter" : "Previous section"
+                bordered: true
+                enabled: root.canStep(-1)
+                opacity: enabled ? 1 : 0.35
+                foreground: root.panelForeground
+                onClicked: root.stepReading(-1)
+              }
+
+              Button {
+                text: "›"
+                tooltipText: root.reading && root.reading.kind === "bible" ? "Next chapter" : "Next section"
+                bordered: true
+                enabled: root.canStep(1)
+                opacity: enabled ? 1 : 0.35
+                foreground: root.panelForeground
+                onClicked: root.stepReading(1)
+              }
+            }
+          }
+
+          Text {
+            width: parent.width
+            visible: root.readingData === null && root.readerNote === ""
+            text: "Loading…"
+            textFormat: Text.PlainText
+            color: root.panelForeground
+            opacity: 0.62
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+
+          Flickable {
+            id: readerList
+            width: parent.width
+            visible: root.readingData !== null
+            height: root.windowed ? root.fillHeight(searchArea.y + readerView.y + y) : Math.min(Style.space(420), readerText.implicitHeight)
+            clip: true
+            contentWidth: width
+            contentHeight: readerText.implicitHeight
+            boundsBehavior: Flickable.StopAtBounds
+
+            Text {
+              id: readerText
+              width: readerList.width
+              text: root.readerHtml()
+              textFormat: Text.RichText
+              color: root.panelForeground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              lineHeight: 1.25
+              wrapMode: Text.WordWrap
+              onLinkActivated: function(link) { root.readerLink(link) }
+
+              MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.NoButton
+                cursorShape: readerText.hoveredLink !== "" ? Qt.PointingHandCursor : Qt.ArrowCursor
+              }
+            }
+          }
+        }
+
         Column {
           id: pinnedView
           width: parent.width
@@ -830,7 +1334,7 @@ Panel {
           Flickable {
             width: parent.width
             visible: !root.commentaryLoading
-            height: root.windowed ? root.fillHeight(pinnedView.y + y) : Math.min(Style.space(400), commentaryColumn.implicitHeight)
+            height: root.windowed ? root.fillHeight(searchArea.y + pinnedView.y + y) : Math.min(Style.space(400), commentaryColumn.implicitHeight)
             clip: true
             contentWidth: width
             contentHeight: commentaryColumn.implicitHeight
