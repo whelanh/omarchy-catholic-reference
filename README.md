@@ -12,8 +12,11 @@ Plugin id: `io.github.whelanh.catholic-reference`
 
 - **Bible tab** — search the full 73-book Douay-Rheims (Challoner) text by
   word, phrase, or reference. Search is fuzzy: type `god so loved` and
-  John 3:16 comes back without needing the exact wording. References like
-  `John 3:16` or `Genesis 1` resolve directly. Click a result to copy it and
+  John 3:16 comes back without needing the exact wording. Book names work
+  as you type them: `Mat` lists the chapters of Matthew, `Mat 4` shows the
+  whole chapter, `Mat 4:23` the verse, and `Mat 4:23-25` a range. A short
+  prefix like `Jo` offers every book it could mean; select a book or chapter
+  to open it. Click a result to copy it and
   pin it with **Catena Aurea** commentary (Thomas Aquinas' Golden Chain, on
   the four Gospels); the `random` chip does the same for a random passage.
   `Esc` or Back returns to the results.
@@ -28,6 +31,18 @@ Plugin id: `io.github.whelanh.catholic-reference`
 - **Hours tab** — the office for Morning, Daytime, Evening, and Night Prayer.
   The current hour is highlighted and selected by default; the liturgical day
   (General Roman Calendar, approximated) is shown above the text.
+- **Browse** — with nothing typed, the Bible tab opens on the Old and New
+  Testaments by division (Pentateuch, Historical Books, Wisdom Books, the
+  Prophets; Gospels, Acts, Letters of St. Paul, Catholic Letters,
+  Revelation), and the Catechism tab on its Prologue and four Parts down to
+  each Article, with paragraph numbers. Open a chapter or section to read it
+  as running text; ‹ › step to the next one. In a chapter, click a verse
+  number for its card and Catena Aurea commentary; in the Catechism, click a
+  paragraph number to copy it, or a cross-reference to follow it.
+- **Pop out** — the header's **Pop out** button moves the reader into a
+  resizable window with room for longer passages. Closing the window returns
+  it to the bar popup. Scriptable too:
+  `qs ipc -p /usr/share/omarchy/shell call io.github.whelanh.catholic-reference window`.
 
 Everything runs offline except the Readings tab, which makes one request to
 universalis.com the first time it is opened each day and then reads a local
@@ -92,6 +107,8 @@ for sources and licensing.
 ```bash
 omarchy plugin validate .
 node tests/model.test.js
+node tests/search.test.js
+node tests/reader.test.js
 node --check bin/omarchy-catholic
 qmllint -I "$OMARCHY_PATH/shell" BarWidget.qml Panel.qml Service.qml ChiRho.qml
 ```

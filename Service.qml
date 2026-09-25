@@ -23,6 +23,7 @@ Item {
 
   readonly property string officePath: fileUrlToPath(Qt.resolvedUrl("data/office.json"))
   readonly property string prayersPath: fileUrlToPath(Qt.resolvedUrl("data/prayers.json"))
+  readonly property string outlinePath: fileUrlToPath(Qt.resolvedUrl("data/outline.json"))
   readonly property string helperPath: fileUrlToPath(Qt.resolvedUrl("bin/omarchy-catholic"))
 
   readonly property var schedule: Model.scheduleState(clock.date, settings)
@@ -89,6 +90,14 @@ Item {
       root.prayersError = ""
     }
     onLoadFailed: root.prayersError = "Couldn't load the bundled prayers."
+  }
+
+  // Browse outlines for the Bible and Catechism tabs (tools/build-outline.mjs).
+  property var outline: ({ bible: [], catechism: [] })
+  property FileView outlineFile: FileView {
+    path: root.outlinePath
+    printErrors: false
+    onLoaded: root.outline = root.parse(text(), { bible: [], catechism: [] })
   }
 
   property Process readingsProc: Process {

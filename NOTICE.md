@@ -37,6 +37,14 @@ Readings tab only, fetches the day's Mass readings from universalis.com.
   (https://github.com/konohitowa/catebot). See that project for the applicable
   terms; the text is reproduced here for personal study and reference.
 
+- The browse outline in `data/outline.json` (Parts, Sections, Chapters,
+  Articles, their sub-headings and paragraph ranges) was taken from the table
+  of contents with paragraph numbers published by Saint Charles Borromeo
+  Catholic Church, Picayune, MS
+  (https://www.scborromeo.org/ccc/ccc_toc2.htm). Two ranges there overlap by
+  one paragraph; the build ends each entry where the next begins.
+- Regenerate with: `node tools/build-outline.mjs path/to/ccc_toc2.htm`.
+
 ## Liturgy of the Hours (bundled office)
 
 - Psalm texts, the Gospel canticles (Benedictus, Magnificat, Nunc dimittis),

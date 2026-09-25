@@ -9,11 +9,14 @@
 //
 //   STATUS\t<message>        a status/error line
 //   RESULT\t<ref>\t<text>    one search hit
+//   NAV\t<label>\t<detail>\t<fill>  a book or chapter; opening it searches <fill>
 //
 // Commands:
 //   search bible QUERY       fuzzy text search + reference lookup
 //   search catechism QUERY   fuzzy search over CCC paragraphs
 //   read BOOK CH:V           exact reference lookup
+//   chapter BOOK CH          one chapter as JSON, for the reader
+//   ccc FIRST LAST           a range of CCC paragraphs as JSON, with headings
 //
 // Fuzzy matching is subsequence-based, so "god so loved" finds
 // "For God so loved the world…" without an exact quote.
@@ -155,6 +158,126 @@ function bookForToken(books, token) {
   return null
 }
 
+function compactName(value) {
+  return normalizeName(value).replace(/ /g, "")
+}
+
+// Books a typed name could mean. An exact name, abbreviation or alias wins
+// outright; otherwise any book whose name starts with what was typed ("mat",
+// "1 cor"), or whose alias does once three letters are in ("cant"). Aliases
+// are compared with their spaces so "is" never reaches "i samuel".
+function booksForPrefix(books, token) {
+  const needle = normalizeName(token)
+  if (!/[a-z]/.test(needle)) return []
+  const exact = bookForToken(books, needle)
+  if (exact) return [exact]
+  const compact = compactName(needle)
+  return books.filter((b) =>
+    compactName(b.name).startsWith(compact) ||
+    (needle.length >= 3 && (b.aliases || []).some((a) => normalizeName(a).startsWith(needle))))
+}
+
+// "mat", "mat 4", "mat4:23", "mat 4:23-25", "1 cor 13". Null when the query
+// is not shaped like a reference, so it falls through to text search.
+// normalizeName turns the range dash into a space, hence "23 25".
+function parseBookQuery(query) {
+  const m = normalizeName(String(query || "").replace(/[\u2013\u2014]/g, "-"))
+    .match(/^((?:[1-4] ?)?[a-z][a-z ]*?) ?(?:(\d+)(?: ?: ?(\d+)(?: (\d+))?)?)?$/)
+  if (!m) return null
+  const verse = m[3] ? parseInt(m[3], 10) : null
+  return {
+    token: m[1],
+    chapter: m[2] ? parseInt(m[2], 10) : null,
+    verse,
+    verseEnd: m[4] ? Math.max(verse, parseInt(m[4], 10)) : verse,
+  }
+}
+
+// book name -> Map(chapter -> [verse]), in canonical order.
+function chapterIndex(verses) {
+  const index = new Map()
+  for (const v of verses) {
+    const chapter = parseInt(v.ref, 10)
+    if (!index.has(v.book)) index.set(v.book, new Map())
+    const chapters = index.get(v.book)
+    if (!chapters.has(chapter)) chapters.set(chapter, [])
+    chapters.get(chapter).push(v)
+  }
+  return index
+}
+
+// A row that opens a book or chapter instead of copying: selecting it puts
+// `fill` in the search box.
+let navCount = 0
+function nav(label, detail, fill) {
+  navCount++
+  process.stdout.write("NAV\t" + label + "\t" + String(detail).replace(/[\t\n]/g, " ") + "\t" + fill + "\n")
+}
+
+function plural(n, word) {
+  return n + " " + word + (n === 1 ? "" : "s")
+}
+
+// Book/chapter/verse navigation. Returns true when the query was fully
+// answered; false lets fuzzy text search run (after any rows written here).
+function navigateBible(q, books, verses) {
+  const parsed = parseBookQuery(q)
+  if (!parsed) return false
+  const matches = booksForPrefix(books, parsed.token)
+  if (matches.length === 0) return false
+  const index = chapterIndex(verses)
+
+  if (parsed.chapter === null) {
+    if (matches.length === 1) {
+      const book = matches[0].name
+      for (const [chapter, list] of index.get(book) || []) {
+        nav(`${book} ${chapter}`, plural(list.length, "verse") + " · " + list[0].text, `${book} ${chapter}`)
+      }
+    } else {
+      for (const b of matches) {
+        nav(b.name, plural((index.get(b.name) || new Map()).size, "chapter"), b.name + " ")
+      }
+    }
+    return false
+  }
+
+  const found = []
+  for (const b of matches) {
+    const list = (index.get(b.name) || new Map()).get(parsed.chapter)
+    if (!list) continue
+    if (parsed.verse === null) found.push({ book: b.name, list })
+    else {
+      const range = list.filter((x) => {
+        const n = parseInt(x.ref.split(":")[1], 10)
+        return n >= parsed.verse && n <= parsed.verseEnd
+      })
+      if (range.length > 0) found.push({ book: b.name, list: range })
+    }
+  }
+  if (found.length === 0) {
+    if (matches.length === 1) {
+      const chapters = index.get(matches[0].name) || new Map()
+      const list = chapters.get(parsed.chapter)
+      status(list
+        ? `${matches[0].name} ${parsed.chapter} has ${plural(list.length, "verse")}`
+        : `${matches[0].name} has ${plural(chapters.size, "chapter")}`)
+    } else {
+      status("No verses match: " + q)
+    }
+    return true
+  }
+  // Several books share the prefix and only a chapter was given: offer the
+  // chapters rather than dumping every verse of each.
+  if (found.length > 1 && parsed.verse === null) {
+    for (const f of found) nav(`${f.book} ${parsed.chapter}`, plural(f.list.length, "verse") + " · " + f.list[0].text, `${f.book} ${parsed.chapter}`)
+    return true
+  }
+  let count = 0
+  for (const f of found) for (const v of f.list) { result(`${v.book} ${v.ref}`, v.text); count++ }
+  status(plural(count, "verse"))
+  return true
+}
+
 function parseReference(query, books) {
   const m = query.trim().match(/^(.+?)\s+(\d+)(?::(\d+))?$/)
   if (!m) return null
@@ -174,23 +297,8 @@ function searchBible(query) {
   }
   const verses = loadBible()
 
-  // Reference lookup: "John 3:16" or "Genesis 1".
-  const ref = parseReference(q, books)
-  if (ref) {
-    const prefix = ref.verse ? `${ref.book}\t${ref.chapter}:${ref.verse}` : `${ref.book}\t${ref.chapter}:`
-    const hits = []
-    for (const v of verses) {
-      const key = `${v.book}\t${v.ref}`
-      if (ref.verse ? key === prefix : key.startsWith(prefix)) hits.push(v)
-    }
-    if (hits.length > 0) {
-      for (const v of hits.slice(0, MAX_RESULTS)) result(`${v.book} ${v.ref}`, v.text)
-      status(hits.length + " verse" + (hits.length === 1 ? "" : "s"))
-      return
-    }
-    status("No verses match: " + q)
-    return
-  }
+  // Book, chapter and verse lookup: "Mat", "Mat 4", "Mat 4:23".
+  if (navigateBible(q, books, verses)) return
 
   // Fuzzy text search.
   const scored = []
@@ -202,7 +310,7 @@ function searchBible(query) {
   scored.sort((a, b) => (b.score - a.score) || (a.index - b.index))
   const top = scored.slice(0, MAX_RESULTS)
   if (top.length === 0) {
-    status("No matches for: " + q)
+    if (navCount === 0) status("No matches for: " + q)
     return
   }
   for (const s of top) result(`${s.v.book} ${s.v.ref}`, s.v.text)
@@ -250,6 +358,42 @@ function readReference(reference) {
     }
   }
   if (found === 0) status("Reference not found: " + reference)
+}
+
+// One chapter for the reader view:
+//   {book, chapter, chapters, poetic, verses: [[n, text]]}
+function chapterJson(args) {
+  const chapter = parseInt(args[args.length - 1], 10)
+  const book = bookForToken(loadBooks(), args.slice(0, -1).join(" "))
+  const out = { book: book ? book.name : "", chapter, chapters: 0, poetic: false, verses: [] }
+  if (book) {
+    const outline = readJson(path.join(DATA_ROOT, "outline.json"))
+    out.poetic = outline.poetic.indexOf(book.name) >= 0
+    for (const v of loadBible()) {
+      if (v.book !== book.name) continue
+      const [c, n] = v.ref.split(":").map((x) => parseInt(x, 10))
+      out.chapters = Math.max(out.chapters, c)
+      if (c === chapter) out.verses.push([n, v.text])
+    }
+  }
+  process.stdout.write(JSON.stringify(out) + "\n")
+}
+
+// A run of Catechism paragraphs for the reader view, with the sub-headings
+// ("I. The Desire for God") that start inside it:
+//   {first, last, paragraphs: [[n, text]], headings: [[n, title]]}
+function catechismRangeJson(args) {
+  const first = parseInt(args[0], 10)
+  const last = parseInt(args[1] || args[0], 10)
+  const inRange = (n) => n >= first && n <= last
+  const outline = readJson(path.join(DATA_ROOT, "outline.json"))
+  const out = {
+    first,
+    last,
+    paragraphs: loadCatechism().filter((p) => inRange(p.id)).map((p) => [p.id, p.text]),
+    headings: outline.catechismHeadings.filter((h) => inRange(h[0])),
+  }
+  process.stdout.write(JSON.stringify(out) + "\n")
 }
 
 function randomVerse() {
@@ -603,6 +747,10 @@ function main() {
     if (kind === "bible") randomVerse()
     else if (kind === "catechism") randomCatechism()
     else { status("Unknown random target. Use bible or catechism."); process.exit(2) }
+  } else if (cmd === "chapter") {
+    chapterJson(args.slice(1))
+  } else if (cmd === "ccc") {
+    catechismRangeJson(args.slice(1))
   } else if (cmd === "commentary") {
     commentaryLookup(args.slice(1).join(" "))
   } else if (cmd === "readings") {
