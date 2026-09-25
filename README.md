@@ -12,8 +12,10 @@ Plugin id: `io.github.whelanh.catholic-reference`
 
 - **Bible tab** — search the full 73-book Douay-Rheims (Challoner) text by
   word, phrase, or reference. Search is fuzzy: type `god so loved` and
-  John 3:16 comes back without needing the exact wording. References like
-  `John 3:16` or `Genesis 1` resolve directly. Click a result to copy it and
+  John 3:16 comes back without needing the exact wording. Book names work
+  as you type them: `Mat` lists the chapters of Matthew, `Mat 4` shows the
+  whole chapter, and `Mat 4:23` the verse. A short prefix like `Jo` offers
+  every book it could mean; select a book or chapter to open it. Click a result to copy it and
   pin it with **Catena Aurea** commentary (Thomas Aquinas' Golden Chain, on
   the four Gospels); the `random` chip does the same for a random passage.
   `Esc` or Back returns to the results.
@@ -96,6 +98,7 @@ for sources and licensing.
 ```bash
 omarchy plugin validate .
 node tests/model.test.js
+node tests/search.test.js
 node --check bin/omarchy-catholic
 qmllint -I "$OMARCHY_PATH/shell" BarWidget.qml Panel.qml Service.qml ChiRho.qml
 ```
