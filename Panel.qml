@@ -83,6 +83,7 @@ Panel {
       root.windowed = true
       keyCatcher.parent = windowHost
     }
+    root._restorePopupOnClose = root.opened
     if (root.opened) controller.hide()
     readerWindow.visible = true
     Qt.callLater(root.focusContent)
@@ -93,6 +94,11 @@ Panel {
     root.windowed = false
     readerWindow.visible = false
     if (root.popupHost) keyCatcher.parent = root.popupHost
+    if (root._restorePopupOnClose) {
+      root._restorePopupOnClose = false
+      controller.show()
+      Qt.callLater(root.focusContent)
+    }
   }
 
   // Height that fills the window from `top` (a y offset within the content
