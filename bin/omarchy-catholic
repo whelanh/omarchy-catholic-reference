@@ -175,15 +175,19 @@ function booksForPrefix(books, token) {
     (needle.length >= 3 && (b.aliases || []).some((a) => normalizeName(a).startsWith(needle))))
 }
 
-// "mat", "mat 4", "mat4:23", "1 cor 13". Null when the query is not shaped
-// like a reference, so it falls through to text search.
+// "mat", "mat 4", "mat4:23", "mat 4:23-25", "1 cor 13". Null when the query
+// is not shaped like a reference, so it falls through to text search.
+// normalizeName turns the range dash into a space, hence "23 25".
 function parseBookQuery(query) {
-  const m = normalizeName(query).match(/^((?:[1-4] ?)?[a-z][a-z ]*?) ?(?:(\d+)(?: ?: ?(\d+))?)?$/)
+  const m = normalizeName(String(query || "").replace(/[\u2013\u2014]/g, "-"))
+    .match(/^((?:[1-4] ?)?[a-z][a-z ]*?) ?(?:(\d+)(?: ?: ?(\d+)(?: (\d+))?)?)?$/)
   if (!m) return null
+  const verse = m[3] ? parseInt(m[3], 10) : null
   return {
     token: m[1],
     chapter: m[2] ? parseInt(m[2], 10) : null,
-    verse: m[3] ? parseInt(m[3], 10) : null,
+    verse,
+    verseEnd: m[4] ? Math.max(verse, parseInt(m[4], 10)) : verse,
   }
 }
 
@@ -241,8 +245,11 @@ function navigateBible(q, books, verses) {
     if (!list) continue
     if (parsed.verse === null) found.push({ book: b.name, list })
     else {
-      const v = list.find((x) => parseInt(x.ref.split(":")[1], 10) === parsed.verse)
-      if (v) found.push({ book: b.name, list: [v] })
+      const range = list.filter((x) => {
+        const n = parseInt(x.ref.split(":")[1], 10)
+        return n >= parsed.verse && n <= parsed.verseEnd
+      })
+      if (range.length > 0) found.push({ book: b.name, list: range })
     }
   }
   if (found.length === 0) {

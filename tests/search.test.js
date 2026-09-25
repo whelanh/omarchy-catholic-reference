@@ -39,6 +39,13 @@ test("book, chapter and verse", () => {
   assert.deepStrictEqual(rows("1 cor 13:4", "RESULT").map((r) => r[1]), ["1 Corinthians 13:4"])
 })
 
+test("verse ranges within a chapter", () => {
+  assert.deepStrictEqual(rows("mat 4:23-25", "RESULT").map((r) => r[1]), ["Matthew 4:23", "Matthew 4:24", "Matthew 4:25"])
+  assert.deepStrictEqual(rows("Mat 4:23 - 24", "RESULT").map((r) => r[1]), ["Matthew 4:23", "Matthew 4:24"])
+  assert.deepStrictEqual(rows("mat 4:23\u201399", "RESULT").map((r) => r[1]), ["Matthew 4:23", "Matthew 4:24", "Matthew 4:25"])
+  assert.strictEqual(rows("mat 4:23-25", "STATUS")[0][1], "3 verses")
+})
+
 test("exact abbreviations still win", () => {
   assert.deepStrictEqual(rows("Jn 3:16", "RESULT").map((r) => r[1]), ["John 3:16"])
   assert.deepStrictEqual(rows("job", "NAV")[0].slice(1, 2), ["Job 1"])
