@@ -150,16 +150,27 @@ Panel {
     if (root.runningKind !== root.currentTab) return
     var lines = String(raw || "").split("\n")
     var found = 0
+    var books = 0
+    var chapters = 0
     for (var i = 0; i < lines.length; i++) {
       var parts = lines[i].split("\t")
       if (parts.length >= 2 && parts[0] === "STATUS") {
         root.statusText = parts.slice(1).join(" ")
       } else if (parts.length >= 3 && parts[0] === "RESULT") {
-        resultModel.append({ reference: parts[1], verse: parts.slice(2).join(" ") })
+        resultModel.append({ reference: parts[1], verse: parts.slice(2).join(" "), fill: "" })
         found++
+      } else if (parts.length >= 4 && parts[0] === "NAV") {
+        // A book or chapter: opening it searches `fill` instead of copying.
+        resultModel.append({ reference: parts[1], verse: parts[2], fill: parts[3] })
+        if (/ $/.test(parts[3])) books++
+        else chapters++
       }
     }
-    if (found > 0) root.statusText = found + " result" + (found === 1 ? "" : "s") + " · click to copy"
+    var summary = []
+    if (books > 0) summary.push(books + " book" + (books === 1 ? "" : "s"))
+    if (chapters > 0) summary.push(chapters + " chapter" + (chapters === 1 ? "" : "s"))
+    if (found > 0) summary.push(found + " result" + (found === 1 ? "" : "s"))
+    if (summary.length > 0) root.statusText = summary.join(" · ")
     root.selectedIndex = 0
     if (root.pendingPin) {
       root.pendingPin = false
@@ -173,10 +184,24 @@ Panel {
   function moveSelection(delta) {
     if (resultModel.count === 0) return
     root.selectedIndex = (root.selectedIndex + delta + resultModel.count) % resultModel.count
-    resultList.contentY = Math.max(0, Math.min(
-      resultList.contentHeight - resultList.height,
-      root.selectedIndex * Style.space(72)
-    ))
+    var item = resultRepeater.itemAt(root.selectedIndex)
+    if (!item) return
+    var top = resultColumn.y + item.y
+    var bottom = top + item.height
+    if (top < resultList.contentY) resultList.contentY = top
+    else if (bottom > resultList.contentY + resultList.height) resultList.contentY = bottom - resultList.height
+  }
+
+  function selectedFill() {
+    if (root.selectedIndex < 0 || root.selectedIndex >= resultModel.count) return ""
+    return resultModel.get(root.selectedIndex).fill
+  }
+
+  function openNav(fill) {
+    searchField.text = fill
+    searchField.cursorPosition = fill.length
+    searchField.forceActiveFocus()
+    resultList.contentY = 0
   }
 
   function activateSelected() {
@@ -186,6 +211,10 @@ Panel {
   function copyResult(index) {
     if (index < 0 || index >= resultModel.count) return
     var row = resultModel.get(index)
+    if (row.fill !== "") {
+      root.openNav(row.fill)
+      return
+    }
     var text = row.reference + " — " + row.verse
     Quickshell.execDetached(["bash", "-c", "printf %s " + Util.shellQuote(text) + " | wl-copy"])
     if (root.currentTab === "bible") {
@@ -505,7 +534,7 @@ Panel {
             width: parent.width
             visible: !root.showingPinned && root.query.trim() === "" && resultModel.count === 0
             text: root.currentTab === "bible"
-              ? "Try a theme, phrase, or verse reference. Click a result to copy it."
+              ? "Try a theme, phrase, book, or verse reference. Click a result to copy it."
               : "Try a topic or phrase. Click a paragraph to copy it."
             textFormat: Text.PlainText
             color: root.panelForeground
@@ -540,7 +569,9 @@ Panel {
 
             Text {
               id: keyboardHint
-              text: resultModel.count > 0 ? "↑ ↓  navigate · ENTER  copy" : ""
+              text: resultModel.count > 0
+                ? "↑ ↓  navigate · ENTER  " + (root.selectedIndex >= 0 && root.selectedIndex < resultModel.count && resultModel.get(root.selectedIndex).fill !== "" ? "open" : "copy")
+                : ""
               textFormat: Text.PlainText
               color: root.panelForeground
               opacity: 0.46
@@ -590,14 +621,18 @@ Panel {
                 visible: resultModel.count > 0
 
                 Repeater {
+                  id: resultRepeater
                   model: resultModel
                   delegate: Item {
                     required property int index
                     required property string reference
                     required property string verse
+                    required property string fill
 
                     width: resultColumn.width
-                    height: Math.max(Style.space(82), verseText.implicitHeight + Style.space(40))
+                    height: fill !== ""
+                      ? verseText.implicitHeight + Style.space(40)
+                      : Math.max(Style.space(82), verseText.implicitHeight + Style.space(40))
 
                     BorderSurface {
                       anchors.fill: parent
@@ -635,7 +670,7 @@ Panel {
 
                         Text {
                           id: copyHint
-                          text: "COPY"
+                          text: fill !== "" ? "OPEN" : "COPY"
                           textFormat: Text.PlainText
                           color: root.panelForeground
                           opacity: 0.46
@@ -651,9 +686,12 @@ Panel {
                         text: verse
                         textFormat: Text.PlainText
                         color: root.panelForeground
+                        opacity: fill !== "" ? 0.72 : 1
                         font.family: root.fontFamily
-                        font.pixelSize: Style.font.body
+                        font.pixelSize: fill !== "" ? Style.font.bodySmall : Style.font.body
                         wrapMode: Text.WordWrap
+                        maximumLineCount: fill !== "" ? 1 : 1000
+                        elide: fill !== "" ? Text.ElideRight : Text.ElideNone
                       }
                     }
 
