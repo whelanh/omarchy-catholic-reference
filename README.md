@@ -119,6 +119,11 @@ qmllint -I "$OMARCHY_PATH/shell" BarWidget.qml Panel.qml Service.qml ChiRho.qml
 omarchy plugin remove io.github.whelanh.catholic-reference
 ```
 
+## Contributors
+[Hugh Whelan](https://github.com/whelanh) — project author and maintainer.
+
+[Demian Neidetcher](https://github.com/demian0311) — Browse the Bible and Catechism by outline and read them as running text(#5).
+
 ## License
 
 Plugin code is MIT licensed. See [LICENSE](LICENSE). Data sources are covered
