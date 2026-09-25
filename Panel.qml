@@ -30,6 +30,12 @@ Panel {
   property bool pendingPin: false
   readonly property bool showingPinned: pinnedResult !== null
 
+  // Window mode: the same content is reparented from the bar popup into a
+  // resizable FloatingWindow, and the scroll areas grow to fill it.
+  property bool windowed: false
+  property Item popupHost: null
+  readonly property bool showing: opened || windowed
+
   readonly property var barIdentity: hostWidget || root
   // Popup text must not inherit the wallpaper-adaptive transparent bar color.
   readonly property color panelForeground: (Color.popups.text !== undefined) ? Color.popups.text : Color.foreground
@@ -49,21 +55,50 @@ Panel {
     return decodeURIComponent(path)
   }
 
+  function focusContent() {
+    if (!root.showingPinned && (root.currentTab === "bible" || root.currentTab === "catechism")) searchField.forceActiveFocus()
+    else if (root.windowed) keyCatcher.forceActiveFocus()
+    if (root.currentTab === "readings" && root.service) root.service.loadReadings()
+  }
+
   function open() {
+    if (root.windowed) return
     controller.show()
-    Qt.callLater(function() {
-      if (!root.showingPinned && (root.currentTab === "bible" || root.currentTab === "catechism")) searchField.forceActiveFocus()
-      if (root.currentTab === "readings" && root.service) root.service.loadReadings()
-    })
+    Qt.callLater(root.focusContent)
   }
 
   function close() {
-    controller.hide()
+    if (root.windowed) root.closeWindow()
+    else controller.hide()
   }
 
   function toggle() {
-    if (root.opened) root.close()
+    if (root.showing) root.close()
     else root.open()
+  }
+
+  function openWindow() {
+    if (!root.windowed) {
+      root.popupHost = keyCatcher.parent
+      root.windowed = true
+      keyCatcher.parent = windowHost
+    }
+    if (root.opened) controller.hide()
+    readerWindow.visible = true
+    Qt.callLater(root.focusContent)
+  }
+
+  function closeWindow() {
+    if (!root.windowed) return
+    root.windowed = false
+    readerWindow.visible = false
+    if (root.popupHost) keyCatcher.parent = root.popupHost
+  }
+
+  // Height that fills the window from `top` (a y offset within the content
+  // column) down to the bottom edge.
+  function fillHeight(top) {
+    return Math.max(Style.space(96), keyCatcher.height - top)
   }
 
   function setTab(tab) {
@@ -231,7 +266,7 @@ Panel {
       waitForEnd: true
     }
     onExited: function() {
-      if (root.opened) root.parseSearchOutput(searchOutput.text)
+      if (root.showing) root.parseSearchOutput(searchOutput.text)
     }
   }
 
@@ -305,7 +340,7 @@ Panel {
           Column {
             anchors.left: iconBadge.right
             anchors.leftMargin: Style.spacing.sm
-            anchors.right: closeHint.left
+            anchors.right: headerControls.left
             anchors.rightMargin: Style.spacing.sm
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.spacing.xs
@@ -322,6 +357,8 @@ Panel {
 
             Text {
               text: "Douay-Rheims Bible · Catechism · Prayers · Readings · Hours"
+              width: parent.width
+              elide: Text.ElideRight
               textFormat: Text.PlainText
               color: root.panelForeground
               opacity: 0.62
@@ -330,17 +367,35 @@ Panel {
             }
           }
 
-          Text {
-            id: closeHint
+          Row {
+            id: headerControls
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            text: "ESC"
-            textFormat: Text.PlainText
-            color: root.panelForeground
-            opacity: 0.62
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            font.letterSpacing: 1
+            spacing: Style.spacing.sm
+
+            Button {
+              id: windowButton
+              anchors.verticalCenter: parent.verticalCenter
+              visible: !root.windowed
+              text: "Pop out"
+              tooltipText: "Open in a resizable window"
+              bordered: true
+              foreground: root.panelForeground
+              fontSize: Style.font.caption
+              onClicked: root.openWindow()
+            }
+
+            Text {
+              id: closeHint
+              anchors.verticalCenter: parent.verticalCenter
+              text: "ESC"
+              textFormat: Text.PlainText
+              color: root.panelForeground
+              opacity: 0.62
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.letterSpacing: 1
+            }
           }
         }
 
@@ -553,7 +608,7 @@ Panel {
             id: resultList
             width: parent.width
             visible: !root.showingPinned && (resultModel.count > 0 || root.query.trim() !== "")
-            height: Math.min(Style.space(320), Math.max(Style.space(96), resultStack.implicitHeight))
+            height: root.windowed ? root.fillHeight(searchArea.y + y) : Math.min(Style.space(320), Math.max(Style.space(96), resultStack.implicitHeight))
             clip: true
             contentWidth: width
             contentHeight: resultStack.implicitHeight
@@ -737,7 +792,7 @@ Panel {
           Flickable {
             width: parent.width
             visible: !root.commentaryLoading
-            height: Math.min(Style.space(400), commentaryColumn.implicitHeight)
+            height: root.windowed ? root.fillHeight(pinnedView.y + y) : Math.min(Style.space(400), commentaryColumn.implicitHeight)
             clip: true
             contentWidth: width
             contentHeight: commentaryColumn.implicitHeight
@@ -824,7 +879,7 @@ Panel {
           Flickable {
             id: prayerDetail
             width: parent.width
-            height: Math.min(Style.space(340), prayerColumn.implicitHeight)
+            height: root.windowed ? root.fillHeight(prayersArea.y + y) : Math.min(Style.space(340), prayerColumn.implicitHeight)
             clip: true
             contentWidth: width
             contentHeight: prayerColumn.implicitHeight
@@ -975,7 +1030,7 @@ Panel {
             id: readingsList
             width: parent.width
             visible: root.service && root.service.readings
-            height: Math.min(Style.space(400), readingsColumn.implicitHeight)
+            height: root.windowed ? root.fillHeight(readingsArea.y + y) : Math.min(Style.space(400), readingsColumn.implicitHeight)
             clip: true
             contentWidth: width
             contentHeight: readingsColumn.implicitHeight
@@ -1124,7 +1179,7 @@ Panel {
           Flickable {
             id: officeView
             width: parent.width
-            height: Math.min(Style.space(380), officeColumn.implicitHeight)
+            height: root.windowed ? root.fillHeight(hoursArea.y + y) : Math.min(Style.space(380), officeColumn.implicitHeight)
             clip: true
             contentWidth: width
             contentHeight: officeColumn.implicitHeight
@@ -1167,6 +1222,25 @@ Panel {
           }
         }
       }
+    }
+  }
+
+  FloatingWindow {
+    id: readerWindow
+    visible: false
+    title: "Catholic Reference"
+    color: Color.popups.background
+    implicitWidth: Style.space(760)
+    implicitHeight: Style.space(900)
+    minimumSize: Qt.size(Style.space(420), Style.space(420))
+
+    // Closed by the compositor (e.g. SUPER+W): move the content back.
+    onVisibleChanged: if (!visible) root.closeWindow()
+
+    Item {
+      id: windowHost
+      anchors.fill: parent
+      anchors.margins: Style.spacing.popupPadding
     }
   }
 }

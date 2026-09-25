@@ -30,6 +30,10 @@ BarWidget {
     if (panelLoader.item) panelLoader.item.toggle()
   }
 
+  function openWindow() {
+    if (panelLoader.item) panelLoader.item.openWindow()
+  }
+
   function injectPanel() {
     var target = panelLoader.item
     if (!target) return
@@ -65,6 +69,7 @@ BarWidget {
     function show(): void { root.open() }
     function hide(): void { root.close() }
     function toggle(): void { root.togglePanel() }
+    function window(): void { root.openWindow() }
   }
 
   BarIconButton {

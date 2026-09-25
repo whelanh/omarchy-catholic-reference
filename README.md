@@ -28,6 +28,10 @@ Plugin id: `io.github.whelanh.catholic-reference`
 - **Hours tab** — the office for Morning, Daytime, Evening, and Night Prayer.
   The current hour is highlighted and selected by default; the liturgical day
   (General Roman Calendar, approximated) is shown above the text.
+- **Pop out** — the header's **Pop out** button moves the reader into a
+  resizable window with room for longer passages. Closing the window returns
+  it to the bar popup. Scriptable too:
+  `qs ipc -p /usr/share/omarchy/shell call io.github.whelanh.catholic-reference window`.
 
 Everything runs offline except the Readings tab, which makes one request to
 universalis.com the first time it is opened each day and then reads a local
