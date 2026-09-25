@@ -14,8 +14,9 @@ Plugin id: `io.github.whelanh.catholic-reference`
   word, phrase, or reference. Search is fuzzy: type `god so loved` and
   John 3:16 comes back without needing the exact wording. Book names work
   as you type them: `Mat` lists the chapters of Matthew, `Mat 4` shows the
-  whole chapter, and `Mat 4:23` the verse. A short prefix like `Jo` offers
-  every book it could mean; select a book or chapter to open it. Click a result to copy it and
+  whole chapter, `Mat 4:23` the verse, and `Mat 4:23-25` a range. A short
+  prefix like `Jo` offers every book it could mean; select a book or chapter
+  to open it. Click a result to copy it and
   pin it with **Catena Aurea** commentary (Thomas Aquinas' Golden Chain, on
   the four Gospels); the `random` chip does the same for a random passage.
   `Esc` or Back returns to the results.
