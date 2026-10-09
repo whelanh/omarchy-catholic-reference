@@ -1,12 +1,13 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // Chi-Rho (☧) Christogram: the superimposed Greek letters Chi (X) and Rho (P).
 // Drawn as strokes so the bar can recolor it with the active theme, matching
 // the Jerusalem Cross pattern in the Liturgy plugin.
 Item {
   id: root
-  property color foreground: Color.foreground
+  property color foreground: Commons.Color.foreground
   property real size: 16
 
   implicitWidth: size

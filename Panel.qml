@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
@@ -38,7 +39,7 @@ Panel {
 
   readonly property var barIdentity: hostWidget || root
   // Popup text must not inherit the wallpaper-adaptive transparent bar color.
-  readonly property color panelForeground: (Color.popups.text !== undefined) ? Color.popups.text : Color.foreground
+  readonly property color panelForeground: (Commons.Color.popups.text !== undefined) ? Commons.Color.popups.text : Commons.Color.foreground
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
   readonly property string readingsMeta: {
@@ -374,7 +375,7 @@ Panel {
   function readerHtml() {
     var d = root.readingData
     if (!d || !root.reading) return ""
-    var accent = String(Color.accent)
+    var accent = String(Commons.Color.accent)
     var parts = []
     if (root.reading.kind === "bible") {
       for (var i = 0; i < d.verses.length; i++) {
@@ -604,8 +605,8 @@ Panel {
             height: Style.space(42)
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
-            color: Style.hoverFillFor(root.panelForeground, Color.accent)
-            borderSpec: Border.flat(Color.accent, 1)
+            color: Style.hoverFillFor(root.panelForeground, Commons.Color.accent)
+            borderSpec: Border.flat(Commons.Color.accent, 1)
             radius: Style.cornerRadius
 
             ChiRho {
@@ -736,7 +737,7 @@ Panel {
             visible: !root.showingPinned
             placeholderText: root.currentTab === "bible" ? "Search the Bible…" : "Search the Catechism…"
             foreground: root.panelForeground
-            accent: Color.accent
+            accent: Commons.Color.accent
             rightPadding: Style.space(54)
             text: root.query
             onTextChanged: {
@@ -799,10 +800,10 @@ Panel {
                 height: Style.space(28)
                 radius: height / 2
                 color: chipMouse.containsMouse
-                  ? Style.hoverFillFor(root.panelForeground, Color.accent)
+                  ? Style.hoverFillFor(root.panelForeground, Commons.Color.accent)
                   : "transparent"
                 border.width: 1
-                border.color: Color.popups.border
+                border.color: Commons.Color.popups.border
 
                 Text {
                   id: chipLabel
@@ -894,10 +895,10 @@ Panel {
                         height: Style.space(28)
                         radius: height / 2
                         color: bookMouse.containsMouse
-                          ? Style.hoverFillFor(root.panelForeground, Color.accent)
+                          ? Style.hoverFillFor(root.panelForeground, Commons.Color.accent)
                           : "transparent"
                         border.width: 1
-                        border.color: bookMouse.containsMouse ? Color.accent : Color.popups.border
+                        border.color: bookMouse.containsMouse ? Commons.Color.accent : Commons.Color.popups.border
 
                         Text {
                           id: bookLabel
@@ -927,10 +928,10 @@ Panel {
                     width: parent.width - x
                     height: parent.height
                     radius: Style.cornerRadius
-                    color: rowMouse.containsMouse ? Style.hoverFillFor(root.panelForeground, Color.accent) : "transparent"
+                    color: rowMouse.containsMouse ? Style.hoverFillFor(root.panelForeground, Commons.Color.accent) : "transparent"
                     borderSpec: rowMouse.containsMouse
-                      ? Border.controlSpec("hover-cursor", root.panelForeground, Color.accent)
-                      : Border.flat(Color.popups.border, 1)
+                      ? Border.controlSpec("hover-cursor", root.panelForeground, Commons.Color.accent)
+                      : Border.flat(Commons.Color.popups.border, 1)
 
                     Text {
                       id: rowTitle
@@ -1074,11 +1075,11 @@ Panel {
                       anchors.fill: parent
                       radius: Style.cornerRadius
                       color: root.selectedIndex === index
-                        ? Style.hoverFillFor(root.panelForeground, Color.accent)
+                        ? Style.hoverFillFor(root.panelForeground, Commons.Color.accent)
                         : "transparent"
                       borderSpec: root.selectedIndex === index
-                        ? Border.controlSpec("hover-cursor", root.panelForeground, Color.accent)
-                        : Border.flat(Color.popups.border, 1)
+                        ? Border.controlSpec("hover-cursor", root.panelForeground, Commons.Color.accent)
+                        : Border.flat(Commons.Color.popups.border, 1)
                     }
 
                     Column {
@@ -1176,7 +1177,7 @@ Panel {
                 width: parent.width
                 text: root.readerTitle()
                 textFormat: Text.PlainText
-                color: Color.accent
+                color: Commons.Color.accent
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.bodySmall
                 font.bold: true
@@ -1292,7 +1293,7 @@ Panel {
               anchors.verticalCenter: parent.verticalCenter
               text: root.pinnedResult ? root.pinnedResult.reference : ""
               textFormat: Text.PlainText
-              color: Color.accent
+              color: Commons.Color.accent
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
               font.bold: true
@@ -1526,7 +1527,7 @@ Panel {
                 width: parent.width
                 text: root.readingsMeta
                 textFormat: Text.PlainText
-                color: Color.accent
+                color: Commons.Color.accent
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.bodySmall
                 wrapMode: Text.WordWrap
@@ -1603,14 +1604,14 @@ Panel {
                     visible: modelData.optionalStart === true
                     width: parent.width
                     height: 1
-                    color: Color.popups.border
+                    color: Commons.Color.popups.border
                   }
                   Text {
                     visible: modelData.optionalStart === true
                     width: parent.width
                     text: "OPTIONAL READINGS"
                     textFormat: Text.PlainText
-                    color: Color.accent
+                    color: Commons.Color.accent
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
                     font.bold: true
@@ -1630,7 +1631,7 @@ Panel {
                     width: parent.width
                     text: modelData.reference || ""
                     textFormat: Text.PlainText
-                    color: Color.accent
+                    color: Commons.Color.accent
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.bodySmall
                     font.bold: true
@@ -1690,7 +1691,7 @@ Panel {
             width: parent.width
             text: root.service && root.service.office ? root.service.office.hourName : ""
             textFormat: Text.PlainText
-            color: Color.accent
+            color: Commons.Color.accent
             font.family: root.fontFamily
             font.pixelSize: Style.font.subtitle
             font.bold: true
@@ -1771,7 +1772,7 @@ Panel {
     id: readerWindow
     visible: false
     title: "Catholic Reference"
-    color: Color.popups.background
+    color: Commons.Color.popups.background
     implicitWidth: Style.space(760)
     implicitHeight: Style.space(900)
     minimumSize: Qt.size(Style.space(420), Style.space(420))
