@@ -79,10 +79,16 @@ BarWidget {
     active: !!office.currentHour
     tooltipText: office.tooltipText
     iconComponent: Component {
-      ChiRho {
-        anchors.fill: parent
-        foreground: button.active && button.useActiveColor ? button.activeColor : button.foreground
-        size: Math.min(width, height)
+      // Match the first-party Canvas-icon pattern: the outer Item takes the
+      // shell-provided size and ChiRho is centered at its own explicit size.
+      // Anchoring ChiRho directly to the unsized Loader made it 0x0.
+      Item {
+        ChiRho {
+          x: (parent.width - width) / 2
+          y: (parent.height - height) / 2
+          foreground: button.active && button.useActiveColor ? button.activeColor : button.foreground
+          size: button.iconSize
+        }
       }
     }
 
