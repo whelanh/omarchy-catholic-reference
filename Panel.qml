@@ -735,6 +735,14 @@ Panel {
             id: searchField
             width: parent.width
             visible: !root.showingPinned
+            // Qt 6.12's TextInput watches QClipboard::dataChanged while it is
+            // writable and, on every change, retrieves the foreign clipboard
+            // contents via mimeData() with no byte or time bound. This panel is
+            // instantiated at shell startup, so an always-writable field let a
+            // clipboard producer stall the shared shell without any paste
+            // action. Keep it readOnly unless the panel is actually open;
+            // readOnly makes Qt skip the clipboard read entirely.
+            readOnly: !root.showing
             placeholderText: root.currentTab === "bible" ? "Search the Bible…" : "Search the Catechism…"
             foreground: root.panelForeground
             accent: Commons.Color.accent
