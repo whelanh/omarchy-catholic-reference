@@ -26,15 +26,17 @@ Fuzzy matching is subsequence-based, so "god so loved" finds
 """
 
 import gzip
+import http.client
 import json
 import os
 import random
 import re
+import socket
+import ssl
 import stat
 import sys
 import time
-import urllib.error
-import urllib.request
+import urllib.parse
 from datetime import date
 
 SCRIPT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -581,25 +583,61 @@ def match1(source, pattern):
     return m.group(1) if m else ""
 
 
-class _TooManyRedirects(Exception):
-    pass
-
-
-# Fetch the HTTPS body with a strict byte ceiling, a timeout, and bounded
-# redirect following.
+# Fetch an HTTPS body under a strict byte ceiling, a wall-clock deadline and
+# bounded redirect following. http.client is used directly rather than
+# urllib.request: on a redirect, urllib's default handler drains the redirect
+# response with an unbounded fp.read() before the byte ceiling is ever
+# applied, so a redirecting server can exhaust memory. Here redirect bodies
+# are never read, and only the final 200 body is read in bounded chunks until
+# the byte ceiling or the deadline is reached.
 def https_get(url, max_bytes, timeout_ms, redirects_left=None):
     if redirects_left is None:
         redirects_left = MAX_REDIRECTS
-    request = urllib.request.Request(url, headers={"User-Agent": READINGS_UA, "Accept": "*/*"})
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise RuntimeError("unsupported URL")
     timeout = timeout_ms / 1000.0
+    deadline = time.monotonic() + timeout
+    connection = http.client.HTTPSConnection(
+        parsed.hostname,
+        parsed.port or 443,
+        timeout=timeout,
+        context=ssl.create_default_context(),
+    )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            data = response.read(max_bytes + 1)
-    except urllib.error.HTTPError as err:
-        raise RuntimeError("HTTP " + str(err.code))
-    if len(data) > max_bytes:
-        raise RuntimeError("response exceeds byte limit")
-    return data.decode("utf-8", "replace")
+        target = parsed.path or "/"
+        if parsed.query:
+            target += "?" + parsed.query
+        connection.request("GET", target, headers={"User-Agent": READINGS_UA, "Accept": "*/*"})
+        response = connection.getresponse()
+        if response.status in (301, 302, 303, 307, 308):
+            location = response.getheader("Location")
+            if not location or redirects_left <= 0:
+                raise RuntimeError("HTTP " + str(response.status))
+            return https_get(urllib.parse.urljoin(url, location), max_bytes, timeout_ms, redirects_left - 1)
+        if response.status != 200:
+            raise RuntimeError("HTTP " + str(response.status))
+        chunks = []
+        total = 0
+        while True:
+            if time.monotonic() >= deadline:
+                raise RuntimeError("request timed out")
+            chunk = response.read(65536)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise RuntimeError("response exceeds byte limit")
+            chunks.append(chunk)
+        return b"".join(chunks).decode("utf-8", "replace")
+    except TimeoutError as err:
+        raise RuntimeError("request timed out") from err
+    except http.client.HTTPException as err:
+        raise RuntimeError(str(err) or "network error") from err
+    except OSError as err:
+        raise RuntimeError(str(err) or "network error") from err
+    finally:
+        connection.close()
 
 
 def parse_universalis(html):
