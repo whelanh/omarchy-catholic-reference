@@ -238,7 +238,6 @@ Panel {
 
   function openNav(fill) {
     searchField.text = fill
-    searchField.cursorPosition = fill.length
     searchField.forceActiveFocus()
     resultList.contentY = 0
   }
@@ -731,48 +730,26 @@ Panel {
           visible: root.currentTab === "bible" || root.currentTab === "catechism"
           spacing: Style.spacing.md
 
-          TextField {
+          KeyField {
             id: searchField
             width: parent.width
             visible: !root.showingPinned
-            // Qt 6.12's TextInput watches QClipboard::dataChanged while it is
-            // writable and, on every change, retrieves the foreign clipboard
-            // contents via mimeData() with no byte or time bound. This panel is
-            // instantiated at shell startup, so an always-writable field let a
-            // clipboard producer stall the shared shell without any paste
-            // action. Keep it readOnly unless the panel is actually open;
-            // readOnly makes Qt skip the clipboard read entirely.
-            readOnly: !root.showing
             placeholderText: root.currentTab === "bible" ? "Search the Bible…" : "Search the Catechism…"
             foreground: root.panelForeground
             accent: Commons.Color.accent
-            rightPadding: Style.space(54)
+            rightReserve: Style.space(54)
             text: root.query
-            onTextChanged: {
+            onEdited: {
               if (root.query !== text) root.query = text
               root.scheduleSearch()
             }
-
-            Keys.priority: Keys.BeforeItem
-            Keys.onPressed: function(event) {
-              if (resultModel.count === 0) return
-              if (event.key === Qt.Key_Down) {
-                root.moveSelection(1)
-                event.accepted = true
-              } else if (event.key === Qt.Key_Up) {
-                root.moveSelection(-1)
-                event.accepted = true
-              } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                root.activateSelected()
-                event.accepted = true
-              }
-            }
-
+            onMoveRequested: function(delta) { root.moveSelection(delta) }
             onAccepted: {
+              root.activateSelected()
               searchField.focus = false
               keyCatcher.forceActiveFocus()
             }
-            Keys.onEscapePressed: {
+            onEscapePressed: {
               searchField.focus = false
               keyCatcher.forceActiveFocus()
             }
@@ -788,6 +765,15 @@ Panel {
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               font.letterSpacing: 0.8
+            }
+          }
+
+          // Keep the field in step when the query changes from elsewhere
+          // (tab switches, quick searches, outline navigation).
+          Connections {
+            target: root
+            function onQueryChanged() {
+              if (searchField.text !== root.query) searchField.text = root.query
             }
           }
 
