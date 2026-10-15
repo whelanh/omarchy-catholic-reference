@@ -6,7 +6,7 @@ const path = require("path")
 const HELPER = path.join(__dirname, "..", "bin", "omarchy-catholic")
 
 function search(query) {
-  return execFileSync("node", [HELPER, "search", "bible", query], { encoding: "utf8" })
+  return execFileSync(HELPER, ["search", "bible", query], { encoding: "utf8" })
     .split("\n").filter(Boolean).map((line) => line.split("\t"))
 }
 

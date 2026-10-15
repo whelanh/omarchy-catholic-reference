@@ -1,770 +1,808 @@
-#!/usr/bin/env node
-"use strict"
+#!/usr/bin/env python3
+"""omarchy-catholic — search backend for the Catholic Reference plugin.
 
-// omarchy-catholic — search backend for the Catholic Reference plugin.
-//
-// Reads the bundled Douay-Rheims index (data/bible.tsv), the canonical book
-// table (data/books.json), and the Catechism (data/catechism.json), and emits
-// tab-separated results the QML panel can parse:
-//
-//   STATUS\t<message>        a status/error line
-//   RESULT\t<ref>\t<text>    one search hit
-//   NAV\t<label>\t<detail>\t<fill>  a book or chapter; opening it searches <fill>
-//
-// Commands:
-//   search bible QUERY       fuzzy text search + reference lookup
-//   search catechism QUERY   fuzzy search over CCC paragraphs
-//   read BOOK CH:V           exact reference lookup
-//   chapter BOOK CH          one chapter as JSON, for the reader
-//   ccc FIRST LAST           a range of CCC paragraphs as JSON, with headings
-//
-// Fuzzy matching is subsequence-based, so "god so loved" finds
-// "For God so loved the world…" without an exact quote.
+Python 3 port of the original Node.js helper so the plugin needs no language
+runtime beyond what Omarchy's base package set already provides (Python ships
+with python-gobject and most base tools). The command line, the tab-separated
+protocol and the JSON payloads are identical to the Node version.
 
-const fs = require("fs")
-const os = require("os")
-const https = require("https")
-const path = require("path")
-const zlib = require("zlib")
+Reads the bundled Douay-Rheims index (data/bible.tsv), the canonical book
+table (data/books.json), and the Catechism (data/catechism.json), and emits
+tab-separated results the QML panel can parse:
 
-const SCRIPT_ROOT = path.resolve(__dirname, "..")
-const DATA_ROOT = path.join(SCRIPT_ROOT, "data")
-const MAX_RESULTS = 40
+  STATUS\t<message>        a status/error line
+  RESULT\t<ref>\t<text>    one search hit
+  NAV\t<label>\t<detail>\t<fill>  a book or chapter; opening it searches <fill>
 
-// Ignore a closed pipe (e.g. output piped to `head`); the reader decides how
-// much it wants.
-process.stdout.on("error", function (err) {
-  if (err && err.code === "EPIPE") process.exit(0)
-  throw err
-})
+Commands:
+  search bible QUERY       fuzzy text search + reference lookup
+  search catechism QUERY   fuzzy search over CCC paragraphs
+  read BOOK CH:V           exact reference lookup
+  chapter BOOK CH          one chapter as JSON, for the reader
+  ccc FIRST LAST           a range of CCC paragraphs as JSON, with headings
 
-function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, "utf8"))
-}
+Fuzzy matching is subsequence-based, so "god so loved" finds
+"For God so loved the world…" without an exact quote.
+"""
 
-function status(msg) {
-  process.stdout.write("STATUS\t" + msg + "\n")
-}
+import gzip
+import json
+import os
+import random
+import re
+import stat
+import sys
+import time
+import urllib.error
+import urllib.request
+from datetime import date
 
-function result(ref, text) {
-  // Collapse newlines/tabs so each hit stays a single line the QML panel can
-  // split on "\t" and "\n" unambiguously.
-  const clean = String(text || "").replace(/\s+/g, " ").trim()
-  process.stdout.write("RESULT\t" + ref + "\t" + clean + "\n")
-}
+SCRIPT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_ROOT = os.path.join(SCRIPT_ROOT, "data")
+MAX_RESULTS = 40
 
-function loadBooks() {
-  return readJson(path.join(DATA_ROOT, "books.json"))
-}
 
-function loadBible() {
-  const raw = fs.readFileSync(path.join(DATA_ROOT, "bible.tsv"), "utf8")
-  const lines = raw.split("\n")
-  const verses = []
-  for (const line of lines) {
-    const idx = line.indexOf("\t")
-    if (idx < 0) continue
-    const book = line.slice(0, idx)
-    const rest = line.slice(idx + 1)
-    const idx2 = rest.indexOf("\t")
-    if (idx2 < 0) continue
-    const ref = rest.slice(0, idx2)
-    const text = rest.slice(idx2 + 1)
-    verses.push({ book, ref, text })
-  }
-  return verses
-}
+def write_out(text):
+    """Write to stdout, exiting quietly if the reader closed the pipe."""
+    try:
+        sys.stdout.write(text)
+        sys.stdout.flush()
+    except BrokenPipeError:
+        try:
+            sys.stdout.close()
+        except BrokenPipeError:
+            pass
+        os._exit(0)
 
-function loadCatechism() {
-  return readJson(path.join(DATA_ROOT, "catechism.json"))
-}
 
-// --- fuzzy matching -------------------------------------------------------
+def read_json(path):
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
 
-function subseqScore(query, text) {
-  let score = 0
-  let streak = 0
-  let lastIdx = -1
-  let ti = 0
-  for (let qi = 0; qi < query.length; qi++) {
-    const ch = query[qi]
-    const idx = text.indexOf(ch, ti)
-    if (idx === -1) return 0
-    if (idx === lastIdx + 1) streak++
-    else streak = 0
-    let bonus = 1
-    if (idx === 0) bonus += 16
-    else {
-      const prev = text[idx - 1]
-      if (prev === " " || prev === "-" || prev === "," || prev === "." || prev === ";" || prev === ":" || prev === "(" || prev === "'")
-        bonus += 10
+
+def status(msg):
+    write_out("STATUS\t" + str(msg) + "\n")
+
+
+def result(ref, text):
+    # Collapse newlines/tabs so each hit stays a single line the QML panel can
+    # split on "\t" and "\n" unambiguously.
+    clean = re.sub(r"\s+", " ", str(text or "")).strip()
+    write_out("RESULT\t" + ref + "\t" + clean + "\n")
+
+
+def load_books():
+    return read_json(os.path.join(DATA_ROOT, "books.json"))
+
+
+def load_bible():
+    with open(os.path.join(DATA_ROOT, "bible.tsv"), "r", encoding="utf-8") as handle:
+        raw = handle.read()
+    verses = []
+    for line in raw.split("\n"):
+        idx = line.find("\t")
+        if idx < 0:
+            continue
+        book = line[:idx]
+        rest = line[idx + 1:]
+        idx2 = rest.find("\t")
+        if idx2 < 0:
+            continue
+        verses.append({"book": book, "ref": rest[:idx2], "text": rest[idx2 + 1:]})
+    return verses
+
+
+def load_catechism():
+    return read_json(os.path.join(DATA_ROOT, "catechism.json"))
+
+
+# --- fuzzy matching -------------------------------------------------------
+
+def subseq_score(query, text):
+    score = 0
+    streak = 0
+    last_idx = -1
+    ti = 0
+    for ch in query:
+        idx = text.find(ch, ti)
+        if idx == -1:
+            return 0
+        if idx == last_idx + 1:
+            streak += 1
+        else:
+            streak = 0
+        bonus = 1
+        if idx == 0:
+            bonus += 16
+        else:
+            if text[idx - 1] in " -,.;:('":
+                bonus += 10
+        score += bonus + min(streak, 5)
+        ti = idx + 1
+        last_idx = idx
+    return score
+
+
+# Score a query against a text. A single-word query must match as a whole
+# word (case-insensitive) so "cremation" never matches "created"/"creation".
+# Multi-word phrases keep fuzzy subsequence matching, boosted heavily when
+# every word also appears as a whole word.
+def score_match(query, text):
+    q = str(query).lower().strip()
+    if not q:
+        return 0
+    t = text.lower()
+    words = [w for w in re.split(r"\s+", q) if w]
+
+    if len(words) == 1:
+        matches = re.findall(r"\b" + re.escape(words[0]) + r"\b", t)
+        if not matches:
+            return 0
+        return 1000 + min(len(matches), 20)
+
+    compact = "".join(words)
+    score = subseq_score(compact, t)
+    if score == 0:
+        return 0
+    every_word = True
+    for word in words:
+        if not re.search(r"\b" + re.escape(word) + r"\b", t):
+            every_word = False
+            break
+    if every_word:
+        score += 800
+    if q in t:
+        score += 400
+    return score
+
+
+# --- book reference parsing -----------------------------------------------
+
+def normalize_name(value):
+    return re.sub(r"\s+", " ", re.sub(r"[.\-,]", " ", str(value or "").lower())).strip()
+
+
+def book_for_token(books, token):
+    needle = normalize_name(token)
+    if not needle:
+        return None
+    for book in books:
+        if normalize_name(book["name"]) == needle:
+            return book
+        if normalize_name(book.get("abbrev", "")) == needle:
+            return book
+        for alias in book.get("aliases", []):
+            if normalize_name(alias) == needle:
+                return book
+    return None
+
+
+def compact_name(value):
+    return normalize_name(value).replace(" ", "")
+
+
+# Books a typed name could mean. An exact name, abbreviation or alias wins
+# outright; otherwise any book whose name starts with what was typed ("mat",
+# "1 cor"), or whose alias does once three letters are in ("cant"). Aliases
+# are compared with their spaces so "is" never reaches "i samuel".
+def books_for_prefix(books, token):
+    needle = normalize_name(token)
+    if not re.search(r"[a-z]", needle):
+        return []
+    exact = book_for_token(books, needle)
+    if exact:
+        return [exact]
+    compact = compact_name(needle)
+    out = []
+    for book in books:
+        if compact_name(book["name"]).startswith(compact):
+            out.append(book)
+        elif len(needle) >= 3 and any(normalize_name(a).startswith(needle) for a in book.get("aliases", [])):
+            out.append(book)
+    return out
+
+
+# "mat", "mat 4", "mat4:23", "mat 4:23-25", "1 cor 13". None when the query is
+# not shaped like a reference, so it falls through to text search.
+# normalize_name turns the range dash into a space, hence "23 25".
+def parse_book_query(query):
+    normalized = normalize_name(re.sub("[\u2013\u2014]", "-", str(query or "")))
+    m = re.match(r"^((?:[1-4] ?)?[a-z][a-z ]*?) ?(?:(\d+)(?: ?: ?(\d+)(?: (\d+))?)?)?$", normalized)
+    if not m:
+        return None
+    verse = int(m.group(3)) if m.group(3) else None
+    return {
+        "token": m.group(1),
+        "chapter": int(m.group(2)) if m.group(2) else None,
+        "verse": verse,
+        "verseEnd": max(verse, int(m.group(4))) if m.group(4) else verse,
     }
-    score += bonus + Math.min(streak, 5)
-    ti = idx + 1
-    lastIdx = idx
-  }
-  return score
-}
 
-function escapeRegex(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-}
 
-// Score a query against a text. A single-word query must match as a whole
-// word (case-insensitive) so "cremation" never matches "created"/"creation".
-// Multi-word phrases keep fuzzy subsequence matching, boosted heavily when
-// every word also appears as a whole word.
-function scoreMatch(query, text) {
-  const q = String(query).toLowerCase().trim()
-  if (!q) return 0
-  const t = text.toLowerCase()
-  const words = q.split(/\s+/).filter(Boolean)
+def ref_chapter(ref):
+    return int(ref.split(":")[0])
 
-  if (words.length === 1) {
-    const re = new RegExp("\\b" + escapeRegex(words[0]) + "\\b", "g")
-    const matches = t.match(re)
-    if (!matches) return 0
-    return 1000 + Math.min(matches.length, 20)
-  }
 
-  const compact = words.join("")
-  let score = subseqScore(compact, t)
-  if (score === 0) return 0
-  let all = true
-  for (const w of words) {
-    if (!new RegExp("\\b" + escapeRegex(w) + "\\b").test(t)) { all = false; break }
-  }
-  if (all) score += 800
-  if (t.indexOf(q) !== -1) score += 400
-  return score
-}
+def ref_verse(ref):
+    return int(ref.split(":")[1])
 
-// --- book reference parsing -----------------------------------------------
 
-function normalizeName(value) {
-  return String(value || "").toLowerCase().replace(/[.\-,]/g, " ").replace(/\s+/g, " ").trim()
-}
+# book name -> {chapter -> [verse]}, in canonical order.
+def chapter_index(verses):
+    index = {}
+    for verse in verses:
+        chapter = ref_chapter(verse["ref"])
+        index.setdefault(verse["book"], {})
+        index[verse["book"]].setdefault(chapter, [])
+        index[verse["book"]][chapter].append(verse)
+    return index
 
-function bookForToken(books, token) {
-  const needle = normalizeName(token)
-  if (!needle) return null
-  for (const b of books) {
-    if (normalizeName(b.name) === needle) return b
-    if (normalizeName(b.abbrev) === needle) return b
-    for (const a of b.aliases || []) {
-      if (normalizeName(a) === needle) return b
-    }
-  }
-  return null
-}
 
-function compactName(value) {
-  return normalizeName(value).replace(/ /g, "")
-}
+# A row that opens a book or chapter instead of copying: selecting it puts
+# `fill` in the search box.
+nav_count = 0
 
-// Books a typed name could mean. An exact name, abbreviation or alias wins
-// outright; otherwise any book whose name starts with what was typed ("mat",
-// "1 cor"), or whose alias does once three letters are in ("cant"). Aliases
-// are compared with their spaces so "is" never reaches "i samuel".
-function booksForPrefix(books, token) {
-  const needle = normalizeName(token)
-  if (!/[a-z]/.test(needle)) return []
-  const exact = bookForToken(books, needle)
-  if (exact) return [exact]
-  const compact = compactName(needle)
-  return books.filter((b) =>
-    compactName(b.name).startsWith(compact) ||
-    (needle.length >= 3 && (b.aliases || []).some((a) => normalizeName(a).startsWith(needle))))
-}
 
-// "mat", "mat 4", "mat4:23", "mat 4:23-25", "1 cor 13". Null when the query
-// is not shaped like a reference, so it falls through to text search.
-// normalizeName turns the range dash into a space, hence "23 25".
-function parseBookQuery(query) {
-  const m = normalizeName(String(query || "").replace(/[\u2013\u2014]/g, "-"))
-    .match(/^((?:[1-4] ?)?[a-z][a-z ]*?) ?(?:(\d+)(?: ?: ?(\d+)(?: (\d+))?)?)?$/)
-  if (!m) return null
-  const verse = m[3] ? parseInt(m[3], 10) : null
-  return {
-    token: m[1],
-    chapter: m[2] ? parseInt(m[2], 10) : null,
-    verse,
-    verseEnd: m[4] ? Math.max(verse, parseInt(m[4], 10)) : verse,
-  }
-}
+def nav(label, detail, fill):
+    global nav_count
+    nav_count += 1
+    write_out("NAV\t" + str(label) + "\t" + re.sub(r"[\t\n]", " ", str(detail)) + "\t" + str(fill) + "\n")
 
-// book name -> Map(chapter -> [verse]), in canonical order.
-function chapterIndex(verses) {
-  const index = new Map()
-  for (const v of verses) {
-    const chapter = parseInt(v.ref, 10)
-    if (!index.has(v.book)) index.set(v.book, new Map())
-    const chapters = index.get(v.book)
-    if (!chapters.has(chapter)) chapters.set(chapter, [])
-    chapters.get(chapter).push(v)
-  }
-  return index
-}
 
-// A row that opens a book or chapter instead of copying: selecting it puts
-// `fill` in the search box.
-let navCount = 0
-function nav(label, detail, fill) {
-  navCount++
-  process.stdout.write("NAV\t" + label + "\t" + String(detail).replace(/[\t\n]/g, " ") + "\t" + fill + "\n")
-}
+def plural(n, word):
+    return str(n) + " " + word + ("" if n == 1 else "s")
 
-function plural(n, word) {
-  return n + " " + word + (n === 1 ? "" : "s")
-}
 
-// Book/chapter/verse navigation. Returns true when the query was fully
-// answered; false lets fuzzy text search run (after any rows written here).
-function navigateBible(q, books, verses) {
-  const parsed = parseBookQuery(q)
-  if (!parsed) return false
-  const matches = booksForPrefix(books, parsed.token)
-  if (matches.length === 0) return false
-  const index = chapterIndex(verses)
+# Book/chapter/verse navigation. Returns True when the query was fully
+# answered; False lets fuzzy text search run (after any rows written here).
+def navigate_bible(query, books, verses):
+    parsed = parse_book_query(query)
+    if not parsed:
+        return False
+    matches = books_for_prefix(books, parsed["token"])
+    if len(matches) == 0:
+        return False
+    index = chapter_index(verses)
 
-  if (parsed.chapter === null) {
-    if (matches.length === 1) {
-      const book = matches[0].name
-      for (const [chapter, list] of index.get(book) || []) {
-        nav(`${book} ${chapter}`, plural(list.length, "verse") + " · " + list[0].text, `${book} ${chapter}`)
-      }
-    } else {
-      for (const b of matches) {
-        nav(b.name, plural((index.get(b.name) || new Map()).size, "chapter"), b.name + " ")
-      }
-    }
-    return false
-  }
+    if parsed["chapter"] is None:
+        if len(matches) == 1:
+            book = matches[0]["name"]
+            for chapter, verses_in in index.get(book, {}).items():
+                nav(book + " " + str(chapter),
+                    plural(len(verses_in), "verse") + " · " + verses_in[0]["text"],
+                    book + " " + str(chapter))
+        else:
+            for book in matches:
+                nav(book["name"], plural(len(index.get(book["name"], {})), "chapter"), book["name"] + " ")
+        return False
 
-  const found = []
-  for (const b of matches) {
-    const list = (index.get(b.name) || new Map()).get(parsed.chapter)
-    if (!list) continue
-    if (parsed.verse === null) found.push({ book: b.name, list })
-    else {
-      const range = list.filter((x) => {
-        const n = parseInt(x.ref.split(":")[1], 10)
-        return n >= parsed.verse && n <= parsed.verseEnd
-      })
-      if (range.length > 0) found.push({ book: b.name, list: range })
-    }
-  }
-  if (found.length === 0) {
-    if (matches.length === 1) {
-      const chapters = index.get(matches[0].name) || new Map()
-      const list = chapters.get(parsed.chapter)
-      status(list
-        ? `${matches[0].name} ${parsed.chapter} has ${plural(list.length, "verse")}`
-        : `${matches[0].name} has ${plural(chapters.size, "chapter")}`)
-    } else {
-      status("No verses match: " + q)
-    }
-    return true
-  }
-  // Several books share the prefix and only a chapter was given: offer the
-  // chapters rather than dumping every verse of each.
-  if (found.length > 1 && parsed.verse === null) {
-    for (const f of found) nav(`${f.book} ${parsed.chapter}`, plural(f.list.length, "verse") + " · " + f.list[0].text, `${f.book} ${parsed.chapter}`)
-    return true
-  }
-  let count = 0
-  for (const f of found) for (const v of f.list) { result(`${v.book} ${v.ref}`, v.text); count++ }
-  status(plural(count, "verse"))
-  return true
-}
+    found = []
+    for book in matches:
+        verses_in = index.get(book["name"], {}).get(parsed["chapter"])
+        if not verses_in:
+            continue
+        if parsed["verse"] is None:
+            found.append({"book": book["name"], "list": verses_in})
+        else:
+            rng = [x for x in verses_in if parsed["verse"] <= ref_verse(x["ref"]) <= parsed["verseEnd"]]
+            if len(rng) > 0:
+                found.append({"book": book["name"], "list": rng})
 
-function parseReference(query, books) {
-  const m = query.trim().match(/^(.+?)\s+(\d+)(?::(\d+))?$/)
-  if (!m) return null
-  const book = bookForToken(books, m[1])
-  if (!book) return null
-  return { book: book.name, chapter: parseInt(m[2], 10), verse: m[3] ? parseInt(m[3], 10) : null }
-}
+    if len(found) == 0:
+        if len(matches) == 1:
+            chapters = index.get(matches[0]["name"], {})
+            verses_in = chapters.get(parsed["chapter"])
+            if verses_in:
+                status(matches[0]["name"] + " " + str(parsed["chapter"]) + " has " + plural(len(verses_in), "verse"))
+            else:
+                status(matches[0]["name"] + " has " + plural(len(chapters), "chapter"))
+        else:
+            status("No verses match: " + query)
+        return True
 
-// --- commands -------------------------------------------------------------
+    # Several books share the prefix and only a chapter was given: offer the
+    # chapters rather than dumping every verse of each.
+    if len(found) > 1 and parsed["verse"] is None:
+        for entry in found:
+            nav(entry["book"] + " " + str(parsed["chapter"]),
+                plural(len(entry["list"]), "verse") + " · " + entry["list"][0]["text"],
+                entry["book"] + " " + str(parsed["chapter"]))
+        return True
 
-function searchBible(query) {
-  const books = loadBooks()
-  const q = query.trim()
-  if (!q) {
-    status("Type a phrase, word, or reference to search the Bible.")
-    return
-  }
-  const verses = loadBible()
+    count = 0
+    for entry in found:
+        for verse in entry["list"]:
+            result(verse["book"] + " " + verse["ref"], verse["text"])
+            count += 1
+    status(plural(count, "verse"))
+    return True
 
-  // Book, chapter and verse lookup: "Mat", "Mat 4", "Mat 4:23".
-  if (navigateBible(q, books, verses)) return
 
-  // Fuzzy text search.
-  const scored = []
-  for (let i = 0; i < verses.length; i++) {
-    const v = verses[i]
-    const score = scoreMatch(q, v.text)
-    if (score > 0) scored.push({ score, index: i, v })
-  }
-  scored.sort((a, b) => (b.score - a.score) || (a.index - b.index))
-  const top = scored.slice(0, MAX_RESULTS)
-  if (top.length === 0) {
-    if (navCount === 0) status("No matches for: " + q)
-    return
-  }
-  for (const s of top) result(`${s.v.book} ${s.v.ref}`, s.v.text)
-  status(top.length + " result" + (top.length === 1 ? "" : "s") + " · click to copy")
-}
+def parse_reference(query, books):
+    m = re.match(r"^(.+?)\s+(\d+)(?::(\d+))?$", query.strip())
+    if not m:
+        return None
+    book = book_for_token(books, m.group(1))
+    if not book:
+        return None
+    return {"book": book["name"], "chapter": int(m.group(2)),
+            "verse": int(m.group(3)) if m.group(3) else None}
 
-function searchCatechism(query) {
-  const q = query.trim()
-  if (!q) {
-    status("Type a word or phrase to search the Catechism.")
-    return
-  }
-  const paragraphs = loadCatechism()
-  const scored = []
-  for (let i = 0; i < paragraphs.length; i++) {
-    const p = paragraphs[i]
-    const score = scoreMatch(q, p.text)
-    if (score > 0) scored.push({ score, index: i, p })
-  }
-  scored.sort((a, b) => (b.score - a.score) || (a.index - b.index))
-  const top = scored.slice(0, MAX_RESULTS)
-  if (top.length === 0) {
-    status("No Catechism paragraphs match: " + q)
-    return
-  }
-  for (const s of top) result("CCC " + s.p.id, s.p.text)
-  status(top.length + " paragraph" + (top.length === 1 ? "" : "s") + " · click to copy")
-}
 
-function readReference(reference) {
-  const books = loadBooks()
-  const ref = parseReference(reference, books)
-  if (!ref) {
-    status("Unrecognized reference. Try \"John 3:16\".")
-    return
-  }
-  const verses = loadBible()
-  const prefix = ref.verse ? `${ref.book}\t${ref.chapter}:${ref.verse}` : `${ref.book}\t${ref.chapter}:`
-  let found = 0
-  for (const v of verses) {
-    const key = `${v.book}\t${v.ref}`
-    if (ref.verse ? key === prefix : key.startsWith(prefix)) {
-      result(`${v.book} ${v.ref}`, v.text)
-      found++
-    }
-  }
-  if (found === 0) status("Reference not found: " + reference)
-}
+# --- commands -------------------------------------------------------------
 
-// One chapter for the reader view:
-//   {book, chapter, chapters, poetic, verses: [[n, text]]}
-function chapterJson(args) {
-  const chapter = parseInt(args[args.length - 1], 10)
-  const book = bookForToken(loadBooks(), args.slice(0, -1).join(" "))
-  const out = { book: book ? book.name : "", chapter, chapters: 0, poetic: false, verses: [] }
-  if (book) {
-    const outline = readJson(path.join(DATA_ROOT, "outline.json"))
-    out.poetic = outline.poetic.indexOf(book.name) >= 0
-    for (const v of loadBible()) {
-      if (v.book !== book.name) continue
-      const [c, n] = v.ref.split(":").map((x) => parseInt(x, 10))
-      out.chapters = Math.max(out.chapters, c)
-      if (c === chapter) out.verses.push([n, v.text])
-    }
-  }
-  process.stdout.write(JSON.stringify(out) + "\n")
-}
-
-// A run of Catechism paragraphs for the reader view, with the sub-headings
-// ("I. The Desire for God") that start inside it:
-//   {first, last, paragraphs: [[n, text]], headings: [[n, title]]}
-function catechismRangeJson(args) {
-  const first = parseInt(args[0], 10)
-  const last = parseInt(args[1] || args[0], 10)
-  const inRange = (n) => n >= first && n <= last
-  const outline = readJson(path.join(DATA_ROOT, "outline.json"))
-  const out = {
-    first,
-    last,
-    paragraphs: loadCatechism().filter((p) => inRange(p.id)).map((p) => [p.id, p.text]),
-    headings: outline.catechismHeadings.filter((h) => inRange(h[0])),
-  }
-  process.stdout.write(JSON.stringify(out) + "\n")
-}
-
-function randomVerse() {
-  const verses = loadBible()
-  if (verses.length === 0) { status("No Bible data available."); return }
-  const i = Math.floor(Math.random() * verses.length)
-  const v = verses[i]
-  const chapter = v.ref.split(":")[0]
-
-  // Give a little context: one verse before and after, within the chapter.
-  let start = i
-  let end = i
-  if (i > 0 && verses[i - 1].book === v.book && verses[i - 1].ref.split(":")[0] === chapter) start = i - 1
-  if (i + 1 < verses.length && verses[i + 1].book === v.book && verses[i + 1].ref.split(":")[0] === chapter) end = i + 1
-
-  const startVerse = verses[start].ref.split(":")[1]
-  const endVerse = verses[end].ref.split(":")[1]
-  const reference = start === end
-    ? `${v.book} ${chapter}:${startVerse}`
-    : `${v.book} ${chapter}:${startVerse}-${endVerse}`
-
-  const text = verses.slice(start, end + 1).map((x) => x.text).join(" ")
-  result(reference, text)
-}
-
-function randomCatechism() {
-  const paragraphs = loadCatechism()
-  if (paragraphs.length === 0) { status("No Catechism data available."); return }
-  const p = paragraphs[Math.floor(Math.random() * paragraphs.length)]
-  result("CCC " + p.id, p.text)
-}
-
-// --- Catena Aurea commentary ----------------------------------------------
-
-let catenaCache = null
-
-function loadCatena() {
-  if (catenaCache) return catenaCache
-  const file = path.join(DATA_ROOT, "catena.json.gz")
-  try {
-    const gz = fs.readFileSync(file)
-    catenaCache = JSON.parse(zlib.gunzipSync(gz).toString("utf8"))
-  } catch (e) {
-    catenaCache = []
-  }
-  return catenaCache
-}
-
-function commentaryLookup(reference) {
-  const m = String(reference || "").trim().match(/^(.+?)\s+(\d+):(\d+)(?:-(\d+))?$/)
-  if (!m) {
-    process.stdout.write(JSON.stringify({ reference: reference || "", p: [] }) + "\n")
-    return
-  }
-  const book = m[1]
-  const chapter = parseInt(m[2], 10)
-  const verse = parseInt(m[3], 10)
-  const catena = loadCatena()
-  for (const s of catena) {
-    if (s.b === book && s.c === chapter && verse >= s.s && verse <= s.e) {
-      process.stdout.write(JSON.stringify({ reference: reference, p: s.p }) + "\n")
-      return
-    }
-  }
-  process.stdout.write(JSON.stringify({ reference: reference, p: [] }) + "\n")
-}
-
-function usage() {
-  process.stdout.write(
-    [
-      "Usage:",
-      "  omarchy-catholic search bible QUERY",
-      "  omarchy-catholic search catechism QUERY",
-      "  omarchy-catholic read BOOK CH:V",
-      "  omarchy-catholic random bible|catechism",
-      "  omarchy-catholic commentary BOOK CH:V",
-      "  omarchy-catholic readings [YYYY-MM-DD] [--refresh]",
-      "",
-      "Fuzzy search runs locally over the bundled Douay-Rheims Bible and the",
-      "Catechism of the Catholic Church. `readings` fetches today's Mass",
-      "readings from universalis.com and caches them locally.",
-    ].join("\n") + "\n"
-  )
-}
-
-// --- daily Mass readings (universalis.com) --------------------------------
-
-const READINGS_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
-const MAX_RESPONSE_BYTES = 256 * 1024
-const MAX_CACHE_BYTES = 256 * 1024
-const READINGS_TIMEOUT_MS = 20000
-const MAX_REDIRECTS = 5
-const MAX_TABLES = 24
-const MAX_READINGS = 10
-const MAX_LINES_PER_READING = 600
-const FIELD_CAPS = {
-  title: 240,
-  rubric: 160,
-  color: 64,
-  year: 64,
-  label: 120,
-  reference: 240,
-  heading: 600,
-  text: 24000
-}
-
-function cap(value, max) {
-  const s = String(value || "")
-  return s.length > max ? s.slice(0, max) : s
-}
-
-function decodeHtml(s) {
-  return String(s)
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&#x([0-9a-f]+);/gi, function (m, hex) {
-      var cp = parseInt(hex, 16)
-      try { return String.fromCodePoint(cp) } catch (e) { return "\uFFFD" }
-    })
-    .replace(/&#(\d+);/g, function (m, dec) {
-      var cp = parseInt(dec, 10)
-      try { return String.fromCodePoint(cp) } catch (e) { return "\uFFFD" }
-    })
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/\u00a0/g, " ")
-}
-
-function match1(source, re) {
-  const m = String(source).match(re)
-  return m ? m[1] : ""
-}
-
-// Stream the HTTPS body with a strict byte ceiling, a timeout, and bounded
-// redirect following.
-function httpsGet(url, maxBytes, timeoutMs, redirectsLeft) {
-  if (redirectsLeft === undefined) redirectsLeft = MAX_REDIRECTS
-  return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { "User-Agent": READINGS_UA, Accept: "*/*" } }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirectsLeft > 0) {
-        res.resume()
-        try {
-          const next = new URL(res.headers.location, url).toString()
-          resolve(httpsGet(next, maxBytes, timeoutMs, redirectsLeft - 1))
-        } catch (e) {
-          reject(e)
-        }
+def search_bible(query):
+    books = load_books()
+    q = query.strip()
+    if not q:
+        status("Type a phrase, word, or reference to search the Bible.")
         return
-      }
-      if (res.statusCode !== 200) {
-        res.resume()
-        reject(new Error("HTTP " + res.statusCode))
+    verses = load_bible()
+
+    # Book, chapter and verse lookup: "Mat", "Mat 4", "Mat 4:23".
+    if navigate_bible(q, books, verses):
         return
-      }
-      const chunks = []
-      let total = 0
-      let settled = false
-      res.on("data", (chunk) => {
-        if (settled) return
-        total += chunk.length
-        if (total > maxBytes) {
-          settled = true
-          req.destroy()
-          reject(new Error("response exceeds byte limit"))
-          return
+
+    # Fuzzy text search.
+    scored = []
+    for i, verse in enumerate(verses):
+        score = score_match(q, verse["text"])
+        if score > 0:
+            scored.append((score, i, verse))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    top = scored[:MAX_RESULTS]
+    if len(top) == 0:
+        if nav_count == 0:
+            status("No matches for: " + q)
+        return
+    for _, _, verse in top:
+        result(verse["book"] + " " + verse["ref"], verse["text"])
+    status(str(len(top)) + " result" + ("" if len(top) == 1 else "s") + " · click to copy")
+
+
+def search_catechism(query):
+    q = query.strip()
+    if not q:
+        status("Type a word or phrase to search the Catechism.")
+        return
+    paragraphs = load_catechism()
+    scored = []
+    for i, paragraph in enumerate(paragraphs):
+        score = score_match(q, paragraph["text"])
+        if score > 0:
+            scored.append((score, i, paragraph))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    top = scored[:MAX_RESULTS]
+    if len(top) == 0:
+        status("No Catechism paragraphs match: " + q)
+        return
+    for _, _, paragraph in top:
+        result("CCC " + str(paragraph["id"]), paragraph["text"])
+    status(str(len(top)) + " paragraph" + ("" if len(top) == 1 else "s") + " · click to copy")
+
+
+def read_reference(reference):
+    books = load_books()
+    ref = parse_reference(reference, books)
+    if not ref:
+        status('Unrecognized reference. Try "John 3:16".')
+        return
+    verses = load_bible()
+    prefix = ref["book"] + "\t" + str(ref["chapter"]) + ":" + (str(ref["verse"]) if ref["verse"] else "")
+    found = 0
+    for verse in verses:
+        key = verse["book"] + "\t" + verse["ref"]
+        if (key == prefix) if ref["verse"] else key.startswith(prefix):
+            result(verse["book"] + " " + verse["ref"], verse["text"])
+            found += 1
+    if found == 0:
+        status("Reference not found: " + reference)
+
+
+# One chapter for the reader view:
+#   {book, chapter, chapters, poetic, verses: [[n, text]]}
+def chapter_json(args):
+    chapter = int(args[-1])
+    book = book_for_token(load_books(), " ".join(args[:-1]))
+    out = {"book": book["name"] if book else "", "chapter": chapter,
+           "chapters": 0, "poetic": False, "verses": []}
+    if book:
+        outline = read_json(os.path.join(DATA_ROOT, "outline.json"))
+        out["poetic"] = book["name"] in outline["poetic"]
+        for verse in load_bible():
+            if verse["book"] != book["name"]:
+                continue
+            c = ref_chapter(verse["ref"])
+            n = ref_verse(verse["ref"])
+            out["chapters"] = max(out["chapters"], c)
+            if c == chapter:
+                out["verses"].append([n, verse["text"]])
+    write_out(json.dumps(out, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+
+# A run of Catechism paragraphs for the reader view, with the sub-headings
+# ("I. The Desire for God") that start inside it:
+#   {first, last, paragraphs: [[n, text]], headings: [[n, title]]}
+def catechism_range_json(args):
+    first = int(args[0])
+    last = int(args[1]) if len(args) > 1 and args[1] else first
+
+    def in_range(n):
+        return first <= n <= last
+
+    outline = read_json(os.path.join(DATA_ROOT, "outline.json"))
+    out = {
+        "first": first,
+        "last": last,
+        "paragraphs": [[p["id"], p["text"]] for p in load_catechism() if in_range(p["id"])],
+        "headings": [h for h in outline["catechismHeadings"] if in_range(h[0])],
+    }
+    write_out(json.dumps(out, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+
+def random_verse():
+    verses = load_bible()
+    if len(verses) == 0:
+        status("No Bible data available.")
+        return
+    i = random.randrange(len(verses))
+    verse = verses[i]
+    chapter = verse["ref"].split(":")[0]
+
+    # Give a little context: one verse before and after, within the chapter.
+    start = i
+    end = i
+    if i > 0 and verses[i - 1]["book"] == verse["book"] and verses[i - 1]["ref"].split(":")[0] == chapter:
+        start = i - 1
+    if i + 1 < len(verses) and verses[i + 1]["book"] == verse["book"] and verses[i + 1]["ref"].split(":")[0] == chapter:
+        end = i + 1
+
+    start_verse = verses[start]["ref"].split(":")[1]
+    end_verse = verses[end]["ref"].split(":")[1]
+    reference = (verse["book"] + " " + chapter + ":" + start_verse) if start == end \
+        else (verse["book"] + " " + chapter + ":" + start_verse + "-" + end_verse)
+
+    text = " ".join(x["text"] for x in verses[start:end + 1])
+    result(reference, text)
+
+
+def random_catechism():
+    paragraphs = load_catechism()
+    if len(paragraphs) == 0:
+        status("No Catechism data available.")
+        return
+    paragraph = paragraphs[random.randrange(len(paragraphs))]
+    result("CCC " + str(paragraph["id"]), paragraph["text"])
+
+
+# --- Catena Aurea commentary ----------------------------------------------
+
+_catena_cache = None
+
+
+def load_catena():
+    global _catena_cache
+    if _catena_cache is not None:
+        return _catena_cache
+    file = os.path.join(DATA_ROOT, "catena.json.gz")
+    try:
+        with gzip.open(file, "rt", encoding="utf-8") as handle:
+            _catena_cache = json.load(handle)
+    except Exception:
+        _catena_cache = []
+    return _catena_cache
+
+
+def commentary_lookup(reference):
+    m = re.match(r"^(.+?)\s+(\d+):(\d+)(?:-(\d+))?$", str(reference or "").strip())
+    if not m:
+        write_out(json.dumps({"reference": reference or "", "p": []}, ensure_ascii=False, separators=(",", ":")) + "\n")
+        return
+    book = m.group(1)
+    chapter = int(m.group(2))
+    verse = int(m.group(3))
+    for section in load_catena():
+        if section["b"] == book and section["c"] == chapter and section["s"] <= verse <= section["e"]:
+            write_out(json.dumps({"reference": reference, "p": section["p"]},
+                                 ensure_ascii=False, separators=(",", ":")) + "\n")
+            return
+    write_out(json.dumps({"reference": reference, "p": []}, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+
+def usage():
+    write_out("\n".join([
+        "Usage:",
+        "  omarchy-catholic search bible QUERY",
+        "  omarchy-catholic search catechism QUERY",
+        "  omarchy-catholic read BOOK CH:V",
+        "  omarchy-catholic random bible|catechism",
+        "  omarchy-catholic commentary BOOK CH:V",
+        "  omarchy-catholic readings [YYYY-MM-DD] [--refresh]",
+        "",
+        "Fuzzy search runs locally over the bundled Douay-Rheims Bible and the",
+        "Catechism of the Catholic Church. `readings` fetches today's Mass",
+        "readings from universalis.com and caches them locally.",
+    ]) + "\n")
+
+
+# --- daily Mass readings (universalis.com) --------------------------------
+
+READINGS_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+MAX_RESPONSE_BYTES = 256 * 1024
+MAX_CACHE_BYTES = 256 * 1024
+READINGS_TIMEOUT_MS = 20000
+MAX_REDIRECTS = 5
+MAX_TABLES = 24
+MAX_READINGS = 10
+MAX_LINES_PER_READING = 600
+FIELD_CAPS = {
+    "title": 240,
+    "rubric": 160,
+    "color": 64,
+    "year": 64,
+    "label": 120,
+    "reference": 240,
+    "heading": 600,
+    "text": 24000,
+}
+
+
+def cap(value, maximum):
+    s = str(value or "")
+    return s[:maximum] if len(s) > maximum else s
+
+
+def decode_html(value):
+    s = str(value)
+    s = re.sub(r"<br\s*/?>", "\n", s, flags=re.IGNORECASE)
+    s = re.sub(r"<[^>]+>", "", s)
+
+    def hex_entity(m):
+        try:
+            return chr(int(m.group(1), 16))
+        except (ValueError, OverflowError):
+            return "\ufffd"
+
+    def dec_entity(m):
+        try:
+            return chr(int(m.group(1), 10))
+        except (ValueError, OverflowError):
+            return "\ufffd"
+
+    s = re.sub(r"&#x([0-9a-f]+);", hex_entity, s, flags=re.IGNORECASE)
+    s = re.sub(r"&#(\d+);", dec_entity, s)
+    s = (s.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<")
+         .replace("&gt;", ">").replace("&quot;", '"').replace("&apos;", "'"))
+    return s.replace("\u00a0", " ")
+
+
+def match1(source, pattern):
+    m = re.search(pattern, str(source), flags=re.DOTALL)
+    return m.group(1) if m else ""
+
+
+class _TooManyRedirects(Exception):
+    pass
+
+
+# Fetch the HTTPS body with a strict byte ceiling, a timeout, and bounded
+# redirect following.
+def https_get(url, max_bytes, timeout_ms, redirects_left=None):
+    if redirects_left is None:
+        redirects_left = MAX_REDIRECTS
+    request = urllib.request.Request(url, headers={"User-Agent": READINGS_UA, "Accept": "*/*"})
+    timeout = timeout_ms / 1000.0
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            data = response.read(max_bytes + 1)
+    except urllib.error.HTTPError as err:
+        raise RuntimeError("HTTP " + str(err.code))
+    if len(data) > max_bytes:
+        raise RuntimeError("response exceeds byte limit")
+    return data.decode("utf-8", "replace")
+
+
+def parse_universalis(html):
+    if not isinstance(html, str) or len(html) > MAX_RESPONSE_BYTES:
+        raise RuntimeError("HTML exceeds byte limit")
+
+    title = cap(decode_html(match1(html, r'<span id="feastname"><strong>([\s\S]*?)</strong>')).strip(), FIELD_CAPS["title"])
+    rubric = cap(decode_html(match1(html, r'<p class="rubric"><i>([\s\S]*?)</i></p>')).strip(), FIELD_CAPS["rubric"])
+
+    color = ""
+    year = ""
+    if rubric:
+        cm = re.search(r"Colour:\s*([^.;]+)", rubric, flags=re.IGNORECASE)
+        ym = re.search(r"Year:\s*([^.<]+)", rubric, flags=re.IGNORECASE)
+        color = cap(cm.group(1).strip() if cm else "", FIELD_CAPS["color"])
+        year = cap(ym.group(1).strip() if ym else "", FIELD_CAPS["year"])
+
+    tables = []
+    for m in re.finditer(r'<table class="each"[^>]*>[\s\S]*?</table>', html):
+        tables.append({"start": m.start(), "end": m.end(), "raw": m.group(0)})
+        if len(tables) >= MAX_TABLES:
+            break
+
+    end_idx = html.find("You can also view")
+    limit_end = end_idx if end_idx >= 0 else len(html)
+
+    readings = []
+    seen_gospel = False
+    for i, table in enumerate(tables):
+        if len(readings) >= MAX_READINGS:
+            break
+        label = decode_html(match1(table["raw"], r'<th align="left">([\s\S]*?)</th>')).strip()
+        if not label or label == "Or:":
+            continue
+        reference = decode_html(match1(table["raw"], r'<th align="right">([\s\S]*?)</th>')).strip()
+        seg_start = table["end"]
+        seg_end = tables[i + 1]["start"] if i + 1 < len(tables) else limit_end
+        seg = html[seg_start:seg_end]
+
+        heading = decode_html(match1(seg, r"<h4[^>]*>([\s\S]*?)</h4>")).strip()
+
+        # The Responsorial Psalm repeats its refrain, which universalis marks
+        # with <i>. Keep that flag so the panel can render it in bold italics.
+        lines = []
+        for lm in re.finditer(r'<div class="(?:p|pi|v|vi|v gb)"[^>]*>([\s\S]*?)</div>', seg):
+            refrain = re.search(r"</?i\b", lm.group(1), flags=re.IGNORECASE) is not None
+            line = decode_html(lm.group(1)).strip()
+            if line:
+                lines.append({"t": line, "r": refrain})
+            if len(lines) >= MAX_LINES_PER_READING:
+                break
+
+        reading = {
+            "label": cap(label, FIELD_CAPS["label"]),
+            "reference": cap(reference, FIELD_CAPS["reference"]),
+            "heading": cap(heading, FIELD_CAPS["heading"]),
+            "text": cap("\n".join(l["t"] for l in lines), FIELD_CAPS["text"]),
+            "lines": lines,
         }
-        chunks.push(chunk)
-      })
-      res.on("end", () => {
-        if (settled) return
-        settled = true
-        resolve(Buffer.concat(chunks).toString("utf8"))
-      })
-      res.on("error", (err) => {
-        if (settled) return
-        settled = true
-        reject(err)
-      })
-    })
-    req.setTimeout(timeoutMs, () => {
-      req.destroy()
-      reject(new Error("request timed out"))
-    })
-    req.on("error", reject)
-  })
-}
+        # A second "First reading" that follows a "Gospel" begins the optional
+        # set of readings offered on some feasts.
+        if re.match(r"^gospel$", label, flags=re.IGNORECASE):
+            seen_gospel = True
+        if seen_gospel and re.match(r"^first reading$", label, flags=re.IGNORECASE):
+            reading["optionalStart"] = True
+        readings.append(reading)
 
-function parseUniversalis(html) {
-  if (typeof html !== "string" || html.length > MAX_RESPONSE_BYTES) throw new Error("HTML exceeds byte limit")
+    return {"title": title, "color": color, "year": year, "readings": readings}
 
-  const title = cap(decodeHtml(match1(html, /<span id="feastname"><strong>([\s\S]*?)<\/strong>/)).trim(), FIELD_CAPS.title)
-  const rubric = cap(decodeHtml(match1(html, /<p class="rubric"><i>([\s\S]*?)<\/i><\/p>/)).trim(), FIELD_CAPS.rubric)
 
-  let color = ""
-  let year = ""
-  if (rubric) {
-    const cm = rubric.match(/Colour:\s*([^.;]+)/i)
-    const ym = rubric.match(/Year:\s*([^.<]+)/i)
-    color = cap(cm ? cm[1].trim() : "", FIELD_CAPS.color)
-    year = cap(ym ? ym[1].trim() : "", FIELD_CAPS.year)
-  }
+def local_iso_date():
+    today = date.today()
+    return today.strftime("%Y-%m-%d")
 
-  const tables = []
-  const tableRe = /<table class="each"[^>]*>[\s\S]*?<\/table>/g
-  let m
-  while ((m = tableRe.exec(html)) !== null) {
-    tables.push({ start: m.index, end: m.index + m[0].length, raw: m[0] })
-    if (tables.length >= MAX_TABLES) break
-  }
 
-  const endIdx = html.indexOf("You can also view")
-  const limitEnd = endIdx >= 0 ? endIdx : html.length
+# Read a cached file descriptor-bound: no symlink following, regular-file and
+# ownership checks, and a size ceiling.
+def cache_read(file):
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(file, flags)
+    except OSError:
+        return None
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            return None
+        if hasattr(os, "getuid") and st.st_uid != os.getuid():
+            return None
+        if st.st_size <= 0 or st.st_size > MAX_CACHE_BYTES:
+            return None
+        return os.read(fd, st.st_size).decode("utf-8", "replace")
+    except OSError:
+        return None
+    finally:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
 
-  const readings = []
-  let seenGospel = false
-  for (let i = 0; i < tables.length; i++) {
-    if (readings.length >= MAX_READINGS) break
-    const t = tables[i]
-    const label = decodeHtml(match1(t.raw, /<th align="left">([\s\S]*?)<\/th>/)).trim()
-    if (!label || label === "Or:") continue
-    const reference = decodeHtml(match1(t.raw, /<th align="right">([\s\S]*?)<\/th>/)).trim()
-    const segStart = t.end
-    const segEnd = i + 1 < tables.length ? tables[i + 1].start : limitEnd
-    const seg = html.slice(segStart, segEnd)
 
-    const heading = decodeHtml(match1(seg, /<h4[^>]*>([\s\S]*?)<\/h4>/)).trim()
+# Write atomically via a same-directory exclusive temporary file, then rename.
+def cache_write(file, data):
+    directory = os.path.dirname(file)
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    tmp = os.path.join(directory, "." + os.path.basename(file) + ".tmp." + str(os.getpid()) + "." + str(int(time.time() * 1000)))
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        os.write(fd, data.encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.replace(tmp, file)
 
-    // The Responsorial Psalm repeats its refrain, which universalis marks
-    // with <i>. Keep that flag so the panel can render it in bold italics.
-    const lines = []
-    const lineRe = /<div class="(?:p|pi|v|vi|v gb)"[^>]*>([\s\S]*?)<\/div>/g
-    let lm
-    while ((lm = lineRe.exec(seg)) !== null) {
-      const refrain = /<\/?i\b/i.test(lm[1])
-      const line = decodeHtml(lm[1]).trim()
-      if (line) lines.push({ t: line, r: refrain })
-      if (lines.length >= MAX_LINES_PER_READING) break
-    }
 
-    const reading = {
-      label: cap(label, FIELD_CAPS.label),
-      reference: cap(reference, FIELD_CAPS.reference),
-      heading: cap(heading, FIELD_CAPS.heading),
-      text: cap(lines.map((l) => l.t).join("\n"), FIELD_CAPS.text),
-      lines: lines
-    }
-    // A second "First reading" that follows a "Gospel" begins the optional
-    // set of readings offered on some feasts.
-    if (/^gospel$/i.test(label)) seenGospel = true
-    if (seenGospel && /^first reading$/i.test(label)) reading.optionalStart = true
-    readings.push(reading)
-  }
+# Remove cached readings for any other date, keeping only the file just
+# written. Restricted to the readings-YYYY-MM-DD.json naming scheme inside the
+# cache directory.
+def cleanup_readings_cache(directory, keep_file):
+    try:
+        entries = os.listdir(directory)
+    except OSError:
+        return
+    keep = os.path.basename(keep_file)
+    for name in entries:
+        if not re.match(r"^readings-\d{4}-\d{2}-\d{2}\.json$", name):
+            continue
+        if name == keep:
+            continue
+        try:
+            os.unlink(os.path.join(directory, name))
+        except OSError:
+            pass
 
-  return { title, color, year, readings }
-}
 
-function localIsoDate() {
-  const d = new Date()
-  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0")
-}
+def readings_command(date_arg, refresh):
+    day = date_arg if re.match(r"^\d{4}-\d{2}-\d{2}$", date_arg or "") else local_iso_date()
+    cache_dir = os.path.join(os.path.expanduser("~"), ".local", "state", "omarchy", "catholic-reference")
+    cache_file = os.path.join(cache_dir, "readings-" + day + ".json")
 
-// Read a cached file descriptor-bound: no symlink following, regular-file and
-// ownership checks, and a size ceiling.
-function cacheRead(file) {
-  let fd
-  try {
-    fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW)
-  } catch (e) {
-    return null
-  }
-  try {
-    const st = fs.fstatSync(fd)
-    if (!st.isFile() || st.isSymbolicLink()) return null
-    if (typeof process.getuid === "function" && st.uid !== process.getuid()) return null
-    if (st.size <= 0 || st.size > MAX_CACHE_BYTES) return null
-    const buf = Buffer.alloc(st.size)
-    fs.readSync(fd, buf, 0, st.size, 0)
-    return buf.toString("utf8")
-  } catch (e) {
-    return null
-  } finally {
-    try { fs.closeSync(fd) } catch (e) {}
-  }
-}
+    if not refresh:
+        cached = cache_read(cache_file)
+        if cached:
+            return cached
 
-// Write atomically via a same-directory exclusive temporary file, then rename.
-function cacheWrite(file, data) {
-  const dir = path.dirname(file)
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
-  const tmp = path.join(dir, "." + path.basename(file) + ".tmp." + process.pid + "." + Date.now())
-  fs.writeFileSync(tmp, data, { flag: "wx", mode: 0o600 })
-  fs.renameSync(tmp, file)
-}
+    yyyymmdd = day.replace("-", "")
+    url = "https://universalis.com/USA/" + yyyymmdd + "/mass.htm"
+    html = https_get(url, MAX_RESPONSE_BYTES, READINGS_TIMEOUT_MS)
+    parsed = parse_universalis(html)
+    if not parsed.get("readings"):
+        raise RuntimeError("No readings parsed")
 
-// Remove cached readings for any other date, keeping only the file just
-// written. Restricted to the readings-YYYY-MM-DD.json naming scheme inside
-// the cache directory.
-function cleanupReadingsCache(dir, keepFile) {
-  let entries
-  try { entries = fs.readdirSync(dir) } catch (e) { return }
-  const keep = path.basename(keepFile)
-  for (const name of entries) {
-    if (!/^readings-\d{4}-\d{2}-\d{2}\.json$/.test(name)) continue
-    if (name === keep) continue
-    try { fs.unlinkSync(path.join(dir, name)) } catch (e) {}
-  }
-}
+    parsed["date"] = day
+    parsed["source"] = "universalis.com"
 
-async function readingsCommand(dateArg, refresh) {
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(dateArg || "") ? dateArg : localIsoDate()
-  const cacheDir = path.join(os.homedir(), ".local", "state", "omarchy", "catholic-reference")
-  const cacheFile = path.join(cacheDir, "readings-" + date + ".json")
+    payload = json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
+    cache_write(cache_file, payload + "\n")
+    cleanup_readings_cache(cache_dir, cache_file)
+    return payload
 
-  if (!refresh) {
-    const cached = cacheRead(cacheFile)
-    if (cached) return cached
-  }
 
-  const yyyymmdd = date.replace(/-/g, "")
-  const url = "https://universalis.com/USA/" + yyyymmdd + "/mass.htm"
-  const html = await httpsGet(url, MAX_RESPONSE_BYTES, READINGS_TIMEOUT_MS)
-  const parsed = parseUniversalis(html)
-  if (!parsed.readings || parsed.readings.length === 0) throw new Error("No readings parsed")
+def main():
+    args = sys.argv[1:]
+    cmd = args[0] if args else None
+    if cmd == "search":
+        kind = args[1] if len(args) > 1 else None
+        query = " ".join(args[2:])
+        if kind == "bible":
+            search_bible(query)
+        elif kind == "catechism":
+            search_catechism(query)
+        else:
+            status("Unknown search target. Use bible or catechism.")
+            sys.exit(2)
+    elif cmd == "read":
+        read_reference(" ".join(args[1:]))
+    elif cmd == "random":
+        kind = args[1] if len(args) > 1 else None
+        if kind == "bible":
+            random_verse()
+        elif kind == "catechism":
+            random_catechism()
+        else:
+            status("Unknown random target. Use bible or catechism.")
+            sys.exit(2)
+    elif cmd == "chapter":
+        chapter_json(args[1:])
+    elif cmd == "ccc":
+        catechism_range_json(args[1:])
+    elif cmd == "commentary":
+        commentary_lookup(" ".join(args[1:]))
+    elif cmd == "readings":
+        refresh = "--refresh" in args
+        date_arg = args[1] if len(args) > 1 and args[1] != "--refresh" else ""
+        try:
+            write_out(readings_command(date_arg, refresh) + "\n")
+        except Exception as err:  # noqa: BLE001 - surface any failure as JSON
+            write_out(json.dumps({"error": str(err)}, ensure_ascii=False, separators=(",", ":")) + "\n")
+    elif cmd in ("help", "-h", "--help"):
+        usage()
+    else:
+        usage()
+        sys.exit(2)
 
-  parsed.date = date
-  parsed.source = "universalis.com"
 
-  const json = JSON.stringify(parsed)
-  cacheWrite(cacheFile, json + "\n")
-  cleanupReadingsCache(cacheDir, cacheFile)
-  return json
-}
-
-function main() {
-  const args = process.argv.slice(2)
-  const cmd = args[0]
-  if (cmd === "search") {
-    const kind = args[1]
-    const query = args.slice(2).join(" ")
-    if (kind === "bible") searchBible(query)
-    else if (kind === "catechism") searchCatechism(query)
-    else { status("Unknown search target. Use bible or catechism."); process.exit(2) }
-  } else if (cmd === "read") {
-    readReference(args.slice(1).join(" "))
-  } else if (cmd === "random") {
-    const kind = args[1]
-    if (kind === "bible") randomVerse()
-    else if (kind === "catechism") randomCatechism()
-    else { status("Unknown random target. Use bible or catechism."); process.exit(2) }
-  } else if (cmd === "chapter") {
-    chapterJson(args.slice(1))
-  } else if (cmd === "ccc") {
-    catechismRangeJson(args.slice(1))
-  } else if (cmd === "commentary") {
-    commentaryLookup(args.slice(1).join(" "))
-  } else if (cmd === "readings") {
-    const refresh = args.indexOf("--refresh") >= 0
-    const dateArg = args[1] && args[1] !== "--refresh" ? args[1] : ""
-    readingsCommand(dateArg, refresh)
-      .then((json) => process.stdout.write(json + "\n"))
-      .catch((err) => process.stdout.write(JSON.stringify({ error: String(err && err.message ? err.message : err) }) + "\n"))
-  } else if (cmd === "help" || cmd === "-h" || cmd === "--help") {
-    usage()
-  } else {
-    usage()
-    process.exit(2)
-  }
-}
-
-main()
+if __name__ == "__main__":
+    main()

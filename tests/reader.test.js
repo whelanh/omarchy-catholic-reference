@@ -7,7 +7,7 @@ const ROOT = path.join(__dirname, "..")
 const outline = require(path.join(ROOT, "data", "outline.json"))
 
 function helper(...args) {
-  return JSON.parse(execFileSync("node", [path.join(ROOT, "bin", "omarchy-catholic"), ...args], { encoding: "utf8" }))
+  return JSON.parse(execFileSync(path.join(ROOT, "bin", "omarchy-catholic"), args, { encoding: "utf8" }))
 }
 
 function test(name, fn) {

@@ -55,9 +55,10 @@ omarchy plugin add https://github.com/whelanh/omarchy-catholic-reference.git --e
 omarchy bar move io.github.whelanh.catholic-reference --section right
 ```
 
-Requires `node` (the search/readings helper `bin/omarchy-catholic` is a Node
-script) and `wl-clipboard` for copying results. The Readings tab needs
-network access; everything else is fully offline.
+No extra packages to install: the search and readings helper
+`bin/omarchy-catholic` is a Python 3 script, and Python 3 and `wl-clipboard`
+(for copying results) are both part of Omarchy. The Readings tab needs network
+access; everything else is fully offline.
 
 ## Usage
 
@@ -88,7 +89,9 @@ network access; everything else is fully offline.
 
 ## Regenerating the data
 
-The bundled data can be rebuilt from the upstream sources:
+The bundled data can be rebuilt from the upstream sources. These are
+maintainer-only scripts and require Node; they are not part of the plugin's
+runtime or installation.
 
 ```bash
 node tools/build-data.mjs path/to/DRC.json      # writes data/bible.tsv + data/books.json
@@ -106,12 +109,16 @@ for sources and licensing.
 
 ```bash
 omarchy plugin validate .
+python3 -m py_compile bin/omarchy-catholic
 node tests/model.test.js
 node tests/search.test.js
 node tests/reader.test.js
-node --check bin/omarchy-catholic
 qmllint -I "$OMARCHY_PATH/shell" BarWidget.qml Panel.qml Service.qml ChiRho.qml
 ```
+
+The `node` commands above, and the data-regeneration scripts under `tools/`,
+are optional maintainer-only checks; they are not needed to install or run the
+plugin.
 
 ## Remove
 
