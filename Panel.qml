@@ -25,6 +25,14 @@ Panel {
   property string runningKind: ""
   property string selectedPrayerId: ""
 
+  // Lectio Divina: a guided four-step prayer with today's Gospel, opened from
+  // the Readings tab.
+  property bool lectioActive: false
+  property int lectioStep: 0
+  property var lectioPassage: null
+  property bool lectioLoading: false
+  property string lectioError: ""
+
   property var pinnedResult: null
   property var commentaryParagraphs: []
   property bool commentaryLoading: false
@@ -60,6 +68,7 @@ Panel {
     if (!root.showingPinned && (root.currentTab === "bible" || root.currentTab === "catechism")) searchField.forceActiveFocus()
     else if (root.windowed) keyCatcher.forceActiveFocus()
     if (root.currentTab === "readings" && root.service) root.service.loadReadings()
+    if (root.currentTab === "readings" && root.lectioActive && root.lectioPassage === null && !root.lectioLoading) root.startLectio()
     if (root.currentTab === "saint" && root.service) root.service.loadSaint()
   }
 
@@ -70,6 +79,7 @@ Panel {
   }
 
   function close() {
+    root.closeLectio()
     if (root.windowed) root.closeWindow()
     else controller.hide()
   }
@@ -105,6 +115,7 @@ Panel {
 
   function setTab(tab) {
     if (root.currentTab === tab) return
+    root.closeLectio()
     root.currentTab = tab
     root.query = ""
     root.unpinResult()
@@ -590,6 +601,70 @@ Panel {
     return list.length > 0 ? list[0] : null
   }
 
+  function gospelReference() {
+    if (!root.service || !root.service.readings) return ""
+    var list = root.service.readings.readings || []
+    for (var i = 0; i < list.length; i++) {
+      var item = list[i]
+      if (item && /^gospel$/i.test(String(item.label || "").trim())) return String(item.reference || "").trim()
+    }
+    return ""
+  }
+
+  function startLectio() {
+    var reference = root.gospelReference()
+    root.lectioActive = true
+    root.lectioStep = 0
+    root.lectioPassage = null
+    root.lectioError = ""
+    if (reference === "") {
+      root.lectioLoading = false
+      root.lectioError = "No Gospel reference is available yet."
+      return
+    }
+    root.lectioLoading = true
+    lectioProc.command = [root.scriptPath, "lectio", reference]
+    lectioProc.running = true
+  }
+
+  function closeLectio() {
+    root.lectioActive = false
+    root.lectioStep = 0
+    root.lectioPassage = null
+    root.lectioLoading = false
+    root.lectioError = ""
+  }
+
+  function lectioNext() { if (root.lectioStep < 3) root.lectioStep++ }
+  function lectioBack() { if (root.lectioStep > 0) root.lectioStep-- }
+
+  readonly property var lectioSteps: [
+    { name: "Lectio", subtitle: "Read", prompt: "Read the passage slowly. What does the text say? Which word or phrase stands out to you?" },
+    { name: "Meditatio", subtitle: "Reflect", prompt: "What does this passage say to me? How does it touch my life today?" },
+    { name: "Oratio", subtitle: "Respond", prompt: "What do I want to say to God about this? Speak honestly and simply." },
+    { name: "Contemplatio", subtitle: "Rest", prompt: "Rest in God's presence. What difference will this passage make in your day?" }
+  ]
+
+  function lectioStepName() {
+    return root.lectioSteps[root.lectioStep].name + " · " + root.lectioSteps[root.lectioStep].subtitle
+  }
+
+  function lectioPrompt() {
+    return root.lectioSteps[root.lectioStep].prompt
+  }
+
+  function lectioHtml() {
+    var passage = root.lectioPassage
+    if (!passage || !passage.verses) return ""
+    var accent = String(Commons.Color.accent)
+    var parts = []
+    for (var i = 0; i < passage.verses.length; i++) {
+      var verse = passage.verses[i]
+      parts.push("<span style=\"color:" + accent + "\"><b>" + verse[0] + "</b></span>&nbsp;" + root.escapeHtml(verse[1]))
+    }
+    return parts.join(" &nbsp;")
+  }
+
   ListModel { id: resultModel }
 
   Timer {
@@ -642,6 +717,27 @@ Panel {
     }
   }
 
+  Process {
+    id: lectioProc
+    running: false
+    stdout: StdioCollector {
+      id: lectioOutput
+      waitForEnd: true
+    }
+    onExited: function() {
+      if (!root.lectioActive) return
+      root.lectioLoading = false
+      var data = root.parseJson(lectioOutput.text, null)
+      if (data && !data.error) {
+        root.lectioPassage = data
+        root.lectioError = ""
+      } else {
+        root.lectioPassage = null
+        root.lectioError = data && data.error ? String(data.error) : "Couldn't load the Gospel passage."
+      }
+    }
+  }
+
   KeyboardPanel {
     id: popup
     anchorItem: root.anchorItem
@@ -657,7 +753,9 @@ Panel {
       anchors.fill: parent
       blocked: searchField.activeFocus
       onCloseRequested: {
-        if (root.showingPinned) {
+        if (root.lectioActive) {
+          root.closeLectio()
+        } else if (root.showingPinned) {
           root.unpinResult()
           if (root.reading === null) Qt.callLater(function() { searchField.forceActiveFocus() })
         } else if (root.reading !== null) {
@@ -1805,13 +1903,26 @@ Panel {
               bordered: true
               foreground: root.panelForeground
               tooltipText: "Refresh today's readings"
-              onClicked: { if (root.service) root.service.loadReadings(true) }
+              onClicked: {
+                root.closeLectio()
+                if (root.service) root.service.loadReadings(true)
+              }
             }
+          }
+
+          Button {
+            width: parent.width
+            visible: !root.lectioActive && root.gospelReference() !== ""
+            text: "Pray with today's Gospel"
+            bordered: true
+            foreground: root.panelForeground
+            tooltipText: "Begin a guided Lectio Divina"
+            onClicked: root.startLectio()
           }
 
           Text {
             width: parent.width
-            visible: root.service && root.service.readingsLoading && !root.service.readings
+            visible: !root.lectioActive && root.service && root.service.readingsLoading && !root.service.readings
             text: "Loading today's readings…"
             textFormat: Text.PlainText
             color: root.panelForeground
@@ -1823,7 +1934,7 @@ Panel {
 
           Text {
             width: parent.width
-            visible: root.service && root.service.readingsError !== "" && !root.service.readings
+            visible: !root.lectioActive && root.service && root.service.readingsError !== "" && !root.service.readings
             text: "Offline — couldn't fetch today's readings.\n" + (root.service ? root.service.readingsError : "")
             textFormat: Text.PlainText
             color: root.panelForeground
@@ -1836,7 +1947,7 @@ Panel {
           Flickable {
             id: readingsList
             width: parent.width
-            visible: root.service && root.service.readings
+            visible: !root.lectioActive && root.service && root.service.readings
             height: root.windowed ? root.fillHeight(readingsArea.y + y) : Math.min(Style.space(400), readingsColumn.implicitHeight)
             clip: true
             contentWidth: width
@@ -1929,6 +2040,241 @@ Panel {
                     }
                   }
                 }
+              }
+            }
+          }
+
+          Column {
+            id: lectioView
+            width: parent.width
+            visible: root.lectioActive
+            spacing: Style.spacing.md
+
+            Row {
+              width: parent.width
+              spacing: Style.spacing.sm
+
+              Button {
+                id: lectioBackButton
+                text: "Back to readings"
+                bordered: true
+                foreground: root.panelForeground
+                onClicked: root.closeLectio()
+              }
+
+              Text {
+                width: parent.width - lectioBackButton.width - parent.spacing
+                anchors.verticalCenter: parent.verticalCenter
+                text: root.lectioPassage ? root.lectioPassage.reference : ""
+                textFormat: Text.PlainText
+                color: Commons.Color.accent
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+                elide: Text.ElideRight
+              }
+            }
+
+            Text {
+              width: parent.width
+              text: "LECTIO DIVINA"
+              textFormat: Text.PlainText
+              color: root.panelForeground
+              opacity: 0.62
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.letterSpacing: 1
+            }
+
+            Row {
+              id: lectioStepRow
+              width: parent.width
+              spacing: Style.spacing.xs
+
+              Repeater {
+                model: root.lectioSteps
+
+                delegate: Text {
+                  required property var modelData
+                  required property int index
+                  width: (lectioStepRow.width - lectioStepRow.spacing * 3) / 4
+                  text: modelData.name
+                  textFormat: Text.PlainText
+                  horizontalAlignment: Text.AlignHCenter
+                  color: index === root.lectioStep ? Commons.Color.accent : root.panelForeground
+                  opacity: index === root.lectioStep ? 1 : 0.5
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: index === root.lectioStep
+
+                  MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.lectioStep = index
+                  }
+                }
+              }
+            }
+
+            Text {
+              width: parent.width
+              text: root.lectioStepName()
+              textFormat: Text.PlainText
+              color: Commons.Color.accent
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              font.bold: true
+            }
+
+            Text {
+              width: parent.width
+              text: root.lectioPrompt()
+              textFormat: Text.PlainText
+              color: root.panelForeground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              font.italic: true
+              wrapMode: Text.WordWrap
+            }
+
+            Text {
+              width: parent.width
+              visible: root.lectioLoading
+              text: "Loading the Gospel…"
+              textFormat: Text.PlainText
+              color: root.panelForeground
+              opacity: 0.62
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              wrapMode: Text.WordWrap
+            }
+
+            Text {
+              width: parent.width
+              visible: !root.lectioLoading && root.lectioError !== ""
+              text: root.lectioError
+              textFormat: Text.PlainText
+              color: root.panelForeground
+              opacity: 0.62
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              wrapMode: Text.WordWrap
+            }
+
+            Flickable {
+              id: lectioScroll
+              width: parent.width
+              visible: root.lectioPassage !== null
+              height: root.windowed ? root.fillHeight(readingsArea.y + lectioView.y + y) : Math.min(Style.space(420), lectioColumn.implicitHeight)
+              clip: true
+              contentWidth: width
+              contentHeight: lectioColumn.implicitHeight
+              boundsBehavior: Flickable.StopAtBounds
+
+              Column {
+                id: lectioColumn
+                width: lectioScroll.width
+                spacing: Style.spacing.md
+
+                Text {
+                  width: parent.width
+                  text: root.lectioHtml()
+                  textFormat: Text.RichText
+                  color: root.panelForeground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  lineHeight: 1.25
+                  wrapMode: Text.WordWrap
+                }
+
+                Column {
+                  width: parent.width
+                  visible: root.lectioStep === 1
+                  spacing: Style.spacing.sm
+
+                  Text {
+                    width: parent.width
+                    text: "FROM THE CATENA AUREA"
+                    textFormat: Text.PlainText
+                    color: root.panelForeground
+                    opacity: 0.62
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    font.bold: true
+                  }
+
+                  Text {
+                    width: parent.width
+                    visible: root.lectioPassage && root.lectioPassage.commentary && root.lectioPassage.commentary.length === 0
+                    text: "No Catena Aurea excerpts are available for this passage."
+                    textFormat: Text.PlainText
+                    color: root.panelForeground
+                    opacity: 0.62
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    wrapMode: Text.WordWrap
+                  }
+
+                  Repeater {
+                    model: root.lectioPassage && root.lectioPassage.commentary ? root.lectioPassage.commentary : []
+
+                    delegate: Column {
+                      required property var modelData
+                      width: parent.width
+                      spacing: Style.space(4)
+
+                      Text {
+                        width: parent.width
+                        text: modelData[0] || ""
+                        textFormat: Text.PlainText
+                        color: Commons.Color.accent
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.bodySmall
+                        font.bold: true
+                        wrapMode: Text.WordWrap
+                      }
+                      Text {
+                        width: parent.width
+                        text: modelData[1] || ""
+                        textFormat: Text.PlainText
+                        color: root.panelForeground
+                        opacity: 0.85
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.bodySmall
+                        lineHeight: 1.2
+                        wrapMode: Text.WordWrap
+                      }
+                    }
+                  }
+                }
+              }
+            }
+
+            Row {
+              spacing: Style.spacing.sm
+
+              Button {
+                visible: root.lectioStep > 0
+                text: "Back"
+                bordered: true
+                foreground: root.panelForeground
+                onClicked: root.lectioBack()
+              }
+
+              Button {
+                visible: root.lectioStep < 3
+                text: "Next"
+                bordered: true
+                foreground: root.panelForeground
+                onClicked: root.lectioNext()
+              }
+
+              Button {
+                visible: root.lectioStep === 3
+                text: "Finish"
+                bordered: true
+                foreground: root.panelForeground
+                onClicked: root.closeLectio()
               }
             }
           }

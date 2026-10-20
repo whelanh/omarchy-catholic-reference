@@ -3,8 +3,9 @@
 An Omarchy Quattro bar widget with a theme-colored Chi-Rho icon and a
 six-tab panel: fuzzy search of the **Douay-Rheims Bible** (with **Catena
 Aurea** commentary), the **Catechism of the Catholic Church**, common
-**Catholic prayers**, the daily **Mass readings**, a bundled **Liturgy of the
-Hours**, and **today's saint and liturgical celebration**.
+**Catholic prayers**, the daily **Mass readings** (with a guided **Lectio
+Divina**), a bundled **Liturgy of the Hours**, and **today's saint and
+liturgical celebration**.
 
 Plugin id: `io.github.whelanh.catholic-reference`
 
@@ -27,7 +28,10 @@ Plugin id: `io.github.whelanh.catholic-reference`
 - **Readings tab** — today's Mass readings (First Reading, Responsorial
   Psalm, Second Reading, Gospel Acclamation, Gospel) with the liturgical
   colour and the Lectionary cycle (Year A/B/C and Weekday I/II). Fetched
-  from universalis.com and cached locally for offline reuse.
+  from universalis.com and cached locally for offline reuse. **Pray with
+  today's Gospel** opens a four-step **Lectio Divina** (Lectio, Meditatio,
+  Oratio, Contemplatio) using the Douay-Rheims text, with Catena Aurea
+  excerpts during Meditatio.
 - **Saint tab** — today's liturgical celebration from a bundled romcal
   calendar (accurate modern US calendar, including optional memorials), with
   the saint or feast, its rank and season, a quotation, and a biography
@@ -76,7 +80,11 @@ access; everything else is fully offline.
   click pins the verse with commentary; `Esc`/Back returns to the list.
 - **Prayers tab:** click a prayer to read it in English and Latin.
 - **Readings tab:** today's Mass readings load automatically; click Refresh to
-  force a re-fetch.
+  force a re-fetch. Click **Pray with today's Gospel** for the guided Lectio
+  Divina.
+- **Lectio Divina:** step through Read / Reflect / Respond / Rest, or click a
+  step name to jump. The passage is the public-domain Douay-Rheims text;
+  Meditatio includes Catena Aurea excerpts for Gospel passages.
 - **Saint tab:** today's celebration and biography are bundled; use the
   Franciscan Media or Wikipedia buttons to read more.
 - **Hours tab:** click Morning / Daytime / Evening / Night to read that hour's
@@ -98,6 +106,9 @@ access; everything else is fully offline.
   (`data/calendar.json.gz`, generated from romcal; `data/saints.json.gz`,
   matched by name from daily-saints and catholic-readings-api). The Saint tab
   makes no network requests.
+- The Lectio Divina prompts are original to this plugin; the scripture is the
+  bundled Douay-Rheims text and the commentary is the public-domain Catena
+  Aurea. No additional network request is made.
 - Does not request elevated privileges, runs no background services, and starts no second Quickshell process.
 
 ## Regenerating the data
@@ -129,6 +140,7 @@ node tests/model.test.js
 node tests/search.test.js
 node tests/reader.test.js
 node tests/saint.test.js
+node tests/lectio.test.js
 qmllint -I "$OMARCHY_PATH/shell" BarWidget.qml Panel.qml Service.qml ChiRho.qml
 ```
 

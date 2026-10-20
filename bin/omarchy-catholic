@@ -20,6 +20,7 @@ Commands:
   read BOOK CH:V           exact reference lookup
   chapter BOOK CH          one chapter as JSON, for the reader
   ccc FIRST LAST           a range of CCC paragraphs as JSON, with headings
+  lectio BOOK CH:V[-V]     a passage and its Catena Aurea excerpts as JSON
   saint [YYYY-MM-DD]       today's liturgy and saint biography as JSON
 
 Fuzzy matching is subsequence-based, so "god so loved" finds
@@ -44,6 +45,9 @@ from datetime import date
 SCRIPT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_ROOT = os.path.join(SCRIPT_ROOT, "data")
 MAX_RESULTS = 40
+MAX_LECTIO_VERSES = 80
+MAX_LECTIO_COMMENTARY = 6
+MAX_LECTIO_COMMENTARY_CHARS = 1400
 
 
 def write_out(text):
@@ -497,20 +501,73 @@ def load_catena():
     return _catena_cache
 
 
+def catena_section(book, chapter, verse):
+    for section in load_catena():
+        if section["b"] == book and section["c"] == chapter and section["s"] <= verse <= section["e"]:
+            return section["p"]
+    return []
+
+
 def commentary_lookup(reference):
     m = re.match(r"^(.+?)\s+(\d+):(\d+)(?:-(\d+))?$", str(reference or "").strip())
     if not m:
         write_out(json.dumps({"reference": reference or "", "p": []}, ensure_ascii=False, separators=(",", ":")) + "\n")
         return
-    book = m.group(1)
+    write_out(json.dumps({
+        "reference": reference,
+        "p": catena_section(m.group(1), int(m.group(2)), int(m.group(3))),
+    }, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+
+# A passage for Lectio Divina: the Douay-Rheims verses plus, for a Gospel, up
+# to a few Catena Aurea excerpts keyed to the first verse.
+def parse_passage_reference(reference, books):
+    text = str(reference or "").strip().replace("–", "-").replace("—", "-")
+    text = re.sub(r"\s+", " ", text)
+    m = re.match(r"^(.+?)\s+(\d+)(?::\s*(\d+)[a-z]?(?:\s*-\s*(\d+)[a-z]?)?)?$", text, re.IGNORECASE)
+    if not m:
+        return None
+    book = book_for_token(books, m.group(1))
+    if not book:
+        return None
     chapter = int(m.group(2))
-    verse = int(m.group(3))
-    for section in load_catena():
-        if section["b"] == book and section["c"] == chapter and section["s"] <= verse <= section["e"]:
-            write_out(json.dumps({"reference": reference, "p": section["p"]},
-                                 ensure_ascii=False, separators=(",", ":")) + "\n")
-            return
-    write_out(json.dumps({"reference": reference, "p": []}, ensure_ascii=False, separators=(",", ":")) + "\n")
+    first = int(m.group(3)) if m.group(3) else None
+    last = int(m.group(4)) if m.group(4) else first
+    return {"book": book["name"], "chapter": chapter, "first": first, "last": last}
+
+
+def passage_json(reference):
+    parsed = parse_passage_reference(reference, load_books())
+    if not parsed:
+        raise RuntimeError("Unrecognized Gospel reference: " + str(reference or ""))
+    verses = []
+    for verse in load_bible():
+        if verse["book"] != parsed["book"] or ref_chapter(verse["ref"]) != parsed["chapter"]:
+            continue
+        number = ref_verse(verse["ref"])
+        if parsed["first"] is not None and not (parsed["first"] <= number <= parsed["last"]):
+            continue
+        verses.append([number, verse["text"]])
+        if len(verses) >= MAX_LECTIO_VERSES:
+            break
+    if not verses:
+        raise RuntimeError("No verses found for " + str(reference or ""))
+    commentary = []
+    if parsed["book"] in ("Matthew", "Mark", "Luke", "John"):
+        for name, text in catena_section(parsed["book"], parsed["chapter"], verses[0][0])[:MAX_LECTIO_COMMENTARY]:
+            commentary.append([
+                str(name).rstrip(": ").strip(),
+                cap(str(text).lstrip(": ").strip(), MAX_LECTIO_COMMENTARY_CHARS),
+            ])
+    return json.dumps({
+        "reference": str(reference or "").strip(),
+        "book": parsed["book"],
+        "chapter": parsed["chapter"],
+        "first": parsed["first"],
+        "last": parsed["last"],
+        "verses": verses,
+        "commentary": commentary,
+    }, ensure_ascii=False, separators=(",", ":"))
 
 
 def usage():
@@ -521,6 +578,7 @@ def usage():
         "  omarchy-catholic read BOOK CH:V",
         "  omarchy-catholic random bible|catechism",
         "  omarchy-catholic commentary BOOK CH:V",
+        "  omarchy-catholic lectio BOOK CH:V[-V]",
         "  omarchy-catholic readings [YYYY-MM-DD] [--refresh]",
         "  omarchy-catholic saint [YYYY-MM-DD]",
         "",
@@ -925,6 +983,11 @@ def main():
         chapter_json(args[1:])
     elif cmd == "ccc":
         catechism_range_json(args[1:])
+    elif cmd == "lectio":
+        try:
+            write_out(passage_json(" ".join(args[1:])) + "\n")
+        except Exception as err:  # noqa: BLE001 - surface any failure as JSON
+            write_out(json.dumps({"error": str(err)}, ensure_ascii=False, separators=(",", ":")) + "\n")
     elif cmd == "commentary":
         commentary_lookup(" ".join(args[1:]))
     elif cmd == "readings":

@@ -100,3 +100,12 @@ catholic-readings-api.
 - The data is for personal devotion and reference; verify official liturgical
   details against the USCCB or the local diocese.
 - Regenerate with `npm install --prefix tools && node tools/build-calendar.mjs`.
+
+## Lectio Divina
+
+- The four-step structure (Lectio, Meditatio, Oratio, Contemplatio) is the
+  traditional practice; the prompts shown in `Panel.qml` are original to this
+  plugin and MIT-licensed.
+- The passage is the bundled Douay-Rheims text (public domain).
+- Meditatio excerpts come from the bundled public-domain Catena Aurea.
+- No additional data source or network request is used.
