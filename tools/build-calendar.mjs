@@ -7,9 +7,10 @@
 //                          the catholic-readings-api
 //
 // The plugin only reads these files at runtime; Node and these packages are
-// not needed to install or use the plugin. Run with:
+// not needed to install or use the plugin. Install the packages declared in
+// tools/package.json, then run:
 //
-//   cd tools && npm install && node build-calendar.mjs
+//   node tools/build-calendar.mjs
 
 import { Romcal } from "romcal"
 import { UnitedStates_En } from "@romcal/calendar.united-states"

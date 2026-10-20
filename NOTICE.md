@@ -99,7 +99,8 @@ catholic-readings-api.
 - No images are fetched or displayed in this version.
 - The data is for personal devotion and reference; verify official liturgical
   details against the USCCB or the local diocese.
-- Regenerate with `npm install --prefix tools && node tools/build-calendar.mjs`.
+- Regenerate with `node tools/build-calendar.mjs` after installing the
+  maintainer packages declared in `tools/package.json`.
 
 ## Lectio Divina
 

@@ -121,15 +121,15 @@ runtime or installation.
 node tools/build-data.mjs path/to/DRC.json      # writes data/bible.tsv + data/books.json
 node tools/build-office.mjs path/to/DRC.json    # writes data/office.json
 node tools/build-catena.mjs path/to/catena.xml  # writes data/catena.json.gz
-npm install --prefix tools
 node tools/build-calendar.mjs                   # writes data/calendar.json.gz + data/saints.json.gz
 ```
 
 `DRC.json` is the `formats/json/DRC.json` file from the
 [scrollmapper/bible_databases](https://github.com/scrollmapper/bible_databases)
 repository. `catena.xml` is the OSIS source from
-[lemtom/catena](https://github.com/lemtom/catena). See [NOTICE.md](NOTICE.md)
-for sources and licensing.
+[lemtom/catena](https://github.com/lemtom/catena). `build-calendar.mjs` uses the
+maintainer packages declared in `tools/package.json`; install those in `tools/`
+before running it. See [NOTICE.md](NOTICE.md) for sources and licensing.
 
 ## Development checks
 
