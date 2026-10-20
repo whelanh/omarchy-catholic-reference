@@ -161,5 +161,6 @@ omarchy plugin remove io.github.whelanh.catholic-reference
 
 ## License
 
-Plugin code is MIT licensed. See [LICENSE](LICENSE). Data sources are covered
-in [NOTICE.md](NOTICE.md).
+Plugin code is MIT licensed. See [LICENSE](LICENSE). Data sources and
+third-party notices are covered in [NOTICE.md](NOTICE.md) and
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

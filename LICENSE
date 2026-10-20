@@ -19,3 +19,13 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Third-party notices
+
+This project redistributes data derived from MIT-licensed projects. Their
+copyright and permission notices are reproduced in full in
+THIRD_PARTY_NOTICES.md:
+
+- romcal — Copyright (c) 2018 Julian Pereira
+- daily-saints — Copyright (c) 2026 Alessio Coci
+- catholic-readings-api — Copyright (c) 2025 cpbjr

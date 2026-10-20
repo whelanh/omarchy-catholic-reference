@@ -5,6 +5,18 @@ fetches the day's Mass readings from universalis.com; the Saint tab uses
 bundled calendar and biography data generated from romcal, daily-saints and
 catholic-readings-api.
 
+## Third-party software notices
+
+The bundled `data/calendar.json.gz` is generated from romcal, and
+`data/saints.json.gz` merges biographies from daily-saints and
+catholic-readings-api. All three are MIT-licensed. Their copyright and
+permission notices are reproduced in full in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md):
+
+- romcal — Copyright (c) 2018 Julian Pereira
+- daily-saints — Copyright (c) 2026 Alessio Coci
+- catholic-readings-api — Copyright (c) 2025 cpbjr
+
 ## Douay-Rheims Bible (Challoner revision)
 
 - Source: [scrollmapper/bible_databases](https://github.com/scrollmapper/bible_databases),
