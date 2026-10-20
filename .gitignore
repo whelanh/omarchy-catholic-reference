@@ -1,2 +1,4 @@
 __pycache__/
 *.pyc
+tools/node_modules/
+tools/.cache/

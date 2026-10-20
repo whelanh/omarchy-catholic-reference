@@ -20,6 +20,7 @@ Commands:
   read BOOK CH:V           exact reference lookup
   chapter BOOK CH          one chapter as JSON, for the reader
   ccc FIRST LAST           a range of CCC paragraphs as JSON, with headings
+  saint [YYYY-MM-DD]       today's liturgy and saint biography as JSON
 
 Fuzzy matching is subsequence-based, so "god so loved" finds
 "For God so loved the world…" without an exact quote.
@@ -36,6 +37,7 @@ import ssl
 import stat
 import sys
 import time
+import unicodedata
 import urllib.parse
 from datetime import date
 
@@ -520,10 +522,13 @@ def usage():
         "  omarchy-catholic random bible|catechism",
         "  omarchy-catholic commentary BOOK CH:V",
         "  omarchy-catholic readings [YYYY-MM-DD] [--refresh]",
+        "  omarchy-catholic saint [YYYY-MM-DD]",
         "",
         "Fuzzy search runs locally over the bundled Douay-Rheims Bible and the",
         "Catechism of the Catholic Church. `readings` fetches today's Mass",
-        "readings from universalis.com and caches them locally.",
+        "readings from universalis.com and caches them locally. `saint` reads",
+        "the bundled romcal calendar and bundled biographies (daily-saints and",
+        "catholic-readings-api); it needs no network access.",
     ]) + "\n")
 
 
@@ -547,6 +552,12 @@ FIELD_CAPS = {
     "heading": 600,
     "text": 24000,
 }
+
+# --- today's liturgical celebration (bundled data) ------------------------
+
+CALENDAR_PATH = os.path.join(DATA_ROOT, "calendar.json.gz")
+SAINTS_PATH = os.path.join(DATA_ROOT, "saints.json.gz")
+SAINT_LEARN_MORE = "https://www.franciscanmedia.org/saint-of-the-day/"
 
 
 def cap(value, maximum):
@@ -798,6 +809,94 @@ def readings_command(date_arg, refresh):
     return payload
 
 
+_calendar_cache = None
+_saints_cache = None
+
+
+def load_calendar():
+    global _calendar_cache
+    if _calendar_cache is None:
+        try:
+            with gzip.open(CALENDAR_PATH, "rt", encoding="utf-8") as handle:
+                _calendar_cache = json.load(handle)
+        except (OSError, ValueError) as err:
+            raise RuntimeError("The bundled liturgical calendar is missing or invalid.") from err
+    return _calendar_cache
+
+
+def load_saints():
+    global _saints_cache
+    if _saints_cache is None:
+        try:
+            with gzip.open(SAINTS_PATH, "rt", encoding="utf-8") as handle:
+                _saints_cache = json.load(handle)
+        except (OSError, ValueError) as err:
+            raise RuntimeError("The bundled saint biographies are missing or invalid.") from err
+    return _saints_cache
+
+
+# Must match keysForName()/normalizeName() in tools/build-calendar.mjs. The
+# build indexes every source name under both its normalised form and any
+# alias, so the runtime only needs the normalised romcal name.
+def normalize_person_name(name):
+    s = unicodedata.normalize("NFKD", str(name or ""))
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = s.lower()
+    s = re.sub(r"\([^)]*\)", " ", s)
+    s = re.sub(r"^\s*(pope\s+)?saints?\b\.?\s*", "", s)
+    s = re.sub(r"^\s*(blessed|saint)\b\.?\s*", "", s)
+    s = s.split(",")[0]
+    s = re.sub(r"\band\s+(his\s+|her\s+)?companions?\b", " ", s)
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    return re.sub(r"\s+", " ", s).strip().removeprefix("the ")
+
+
+def biography_for(name, saints):
+    entry = saints.get(normalize_person_name(name))
+    return entry if isinstance(entry, dict) else None
+
+
+# Today's celebration comes from the bundled romcal calendar; biographies are
+# matched by name from the bundled daily-saints / catholic-readings-api index.
+# No network access is needed for this command.
+def saint_command(date_arg):
+    day = date_arg if re.match(r"^\d{4}-\d{2}-\d{2}$", date_arg or "") else local_iso_date()
+    calendar = load_calendar()
+    entries = calendar.get(day)
+    if not entries:
+        raise RuntimeError("No calendar data is available for " + day[:4] + ". Update the plugin to add this year.")
+
+    saints = load_saints()
+    celebrations = []
+    featured = 0
+    for index, entry in enumerate(entries):
+        celebration = dict(entry)
+        biography = biography_for(celebration.get("name", ""), saints)
+        if biography:
+            for field in ("summary", "quote", "legacy", "era", "wikipedia"):
+                value = biography.get(field)
+                if value:
+                    celebration[field] = value
+            patronage = biography.get("patronage")
+            if patronage:
+                celebration["patronage"] = patronage
+            sources = biography.get("sources")
+            if sources:
+                celebration["biographySources"] = sources
+        celebrations.append(celebration)
+        if featured == 0 and celebration.get("rank") not in ("WEEKDAY", "SUNDAY"):
+            featured = index
+
+    return json.dumps({
+        "date": day,
+        "season": celebrations[0].get("season", "") if celebrations else "",
+        "celebrations": celebrations,
+        "featured": featured,
+        "learnMore": SAINT_LEARN_MORE,
+        "source": "romcal; biographies: daily-saints and catholic-readings-api",
+    }, ensure_ascii=False, separators=(",", ":"))
+
+
 def main():
     args = sys.argv[1:]
     cmd = args[0] if args else None
@@ -833,6 +932,12 @@ def main():
         date_arg = args[1] if len(args) > 1 and args[1] != "--refresh" else ""
         try:
             write_out(readings_command(date_arg, refresh) + "\n")
+        except Exception as err:  # noqa: BLE001 - surface any failure as JSON
+            write_out(json.dumps({"error": str(err)}, ensure_ascii=False, separators=(",", ":")) + "\n")
+    elif cmd == "saint":
+        date_arg = args[1] if len(args) > 1 and args[1] != "--refresh" else ""
+        try:
+            write_out(saint_command(date_arg) + "\n")
         except Exception as err:  # noqa: BLE001 - surface any failure as JSON
             write_out(json.dumps({"error": str(err)}, ensure_ascii=False, separators=(",", ":")) + "\n")
     elif cmd in ("help", "-h", "--help"):

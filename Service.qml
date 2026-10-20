@@ -5,10 +5,11 @@ import "Model.js" as Model
 
 // Persistent state for the Catholic Reference widget. Loads the bundled
 // office content (data/office.json) and prayers (data/prayers.json), derives
-// the current hour's office, and fetches today's Mass readings from
-// universalis.com via the Node helper. The Bible and Catechism corpora are
-// read directly by the Node search helper, so they never need to be parsed
-// by the QML runtime.
+// the current hour's office, and reads today's Mass readings (fetched from
+// universalis.com) and today's liturgical celebration and biography (bundled
+// as data/calendar.json.gz and data/saints.json.gz) through the bundled
+// Python helper. The Bible and Catechism corpora are read by that helper, so
+// they never need to be parsed by the QML runtime.
 Item {
   id: root
   property var settings: ({})
@@ -54,6 +55,10 @@ Item {
   property string readingsError: ""
   property bool readingsLoading: false
 
+  property var saint: null
+  property string saintError: ""
+  property bool saintLoading: false
+
   SystemClock {
     id: clock
     precision: SystemClock.Minutes
@@ -70,6 +75,15 @@ Item {
     root.readingsError = ""
     readingsProc.command = [root.helperPath, "readings"].concat(force === true ? ["--refresh"] : [])
     readingsProc.running = true
+  }
+
+  function loadSaint() {
+    if (root.saintLoading) return
+    if (root.saint && root.saint.date === root.todayIso) return
+    root.saintLoading = true
+    root.saintError = ""
+    saintProc.command = [root.helperPath, "saint", root.todayIso]
+    saintProc.running = true
   }
 
   property FileView officeFile: FileView {
@@ -120,6 +134,30 @@ Item {
         root.readingsError = ""
       } else {
         root.readingsError = data && data.error ? String(data.error) : "Couldn't load today's readings."
+      }
+    }
+  }
+
+  property Process saintProc: Process {
+    id: saintProc
+    running: false
+    stdout: StdioCollector {
+      id: saintOutput
+      waitForEnd: true
+    }
+    onExited: function() {
+      root.saintLoading = false
+      var raw = String(saintOutput.text || "")
+      if (raw.length > 65536) {
+        root.saintError = "Saint response was too large."
+        return
+      }
+      var data = root.parse(raw, null)
+      if (data && !data.error) {
+        root.saint = data
+        root.saintError = ""
+      } else {
+        root.saintError = data && data.error ? String(data.error) : "Couldn't load today's saint."
       }
     }
   }

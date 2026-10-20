@@ -1,7 +1,9 @@
 # Data sources and attribution
 
-This plugin bundles public-domain / freely-licensed corpora and, for the
-Readings tab only, fetches the day's Mass readings from universalis.com.
+This plugin bundles public-domain / freely-licensed corpora. The Readings tab
+fetches the day's Mass readings from universalis.com; the Saint tab uses
+bundled calendar and biography data generated from romcal, daily-saints and
+catholic-readings-api.
 
 ## Douay-Rheims Bible (Challoner revision)
 
@@ -75,3 +77,26 @@ Readings tab only, fetches the day's Mass readings from universalis.com.
 - The Lectionary cycle (Year A/B/C and Weekday I/II) is computed locally in
   `Model.js`.
 - The Collect is not shown because it is not available from the free sources.
+
+## Today's liturgical celebration
+
+- The calendar comes from [romcal](https://github.com/romcal/romcal) (MIT),
+  generated at build time for 2026–2040 with the United States calendar. It
+  supplies the celebration name, rank (including optional memorials), colour,
+  and season.
+- Biographies are matched by name from two MIT sources:
+  - [daily-saints](https://github.com/ACoci86/daily-saints): summaries,
+    legacy, patronage, era, and Wikipedia links. Its images are not used yet;
+    when they are, `IMAGE-CREDITS.md` in that repository records each image's
+    Commons source, licence, and author.
+  - [catholic-readings-api](https://github.com/cpbjr/catholic-readings-api):
+    quotations and short descriptions, especially for modern saints.
+- Matching is by normalised saint name, not by those sources' own calendars,
+  so the modern romcal date is authoritative.
+- The **Franciscan Media** link points to
+  [their saint of the day](https://www.franciscanmedia.org/saint-of-the-day/).
+  Only a link is used; no Franciscan Media content is copied.
+- No images are fetched or displayed in this version.
+- The data is for personal devotion and reference; verify official liturgical
+  details against the USCCB or the local diocese.
+- Regenerate with `npm install --prefix tools && node tools/build-calendar.mjs`.

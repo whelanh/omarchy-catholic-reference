@@ -60,6 +60,7 @@ Panel {
     if (!root.showingPinned && (root.currentTab === "bible" || root.currentTab === "catechism")) searchField.forceActiveFocus()
     else if (root.windowed) keyCatcher.forceActiveFocus()
     if (root.currentTab === "readings" && root.service) root.service.loadReadings()
+    if (root.currentTab === "saint" && root.service) root.service.loadSaint()
   }
 
   function open() {
@@ -116,6 +117,7 @@ Panel {
       if (list.length > 0) root.selectedPrayerId = list[0].id
     }
     if (tab === "readings" && root.service) root.service.loadReadings()
+    if (tab === "saint" && root.service) root.service.loadSaint()
     if (tab === "bible" || tab === "catechism") Qt.callLater(function() { searchField.forceActiveFocus() })
   }
 
@@ -500,6 +502,87 @@ Panel {
     return false
   }
 
+  function saintCapitalize(value) {
+    var s = String(value || "")
+    return s.length > 0 ? s.charAt(0).toUpperCase() + s.slice(1) : s
+  }
+
+  function saintFeatured() {
+    var data = root.service ? root.service.saint : null
+    if (!data || !data.celebrations || data.celebrations.length === 0) return null
+    return data.celebrations[data.featured] || data.celebrations[0]
+  }
+
+  function saintContext() {
+    var data = root.service ? root.service.saint : null
+    if (!data || !data.celebrations) return null
+    var featured = root.saintFeatured()
+    for (var i = 0; i < data.celebrations.length; i++) {
+      var item = data.celebrations[i]
+      if (item !== featured && (item.rank === "WEEKDAY" || item.rank === "SUNDAY")) return item
+    }
+    return null
+  }
+
+  function saintOthers() {
+    var data = root.service ? root.service.saint : null
+    if (!data || !data.celebrations) return []
+    var featured = root.saintFeatured()
+    var out = []
+    for (var i = 0; i < data.celebrations.length; i++) {
+      var item = data.celebrations[i]
+      if (item !== featured && item.rank !== "WEEKDAY" && item.rank !== "SUNDAY") out.push(item)
+    }
+    return out
+  }
+
+  function saintFeaturedMeta() {
+    var item = root.saintFeatured()
+    if (!item) return ""
+    var parts = []
+    if (item.rankName) parts.push(root.saintCapitalize(item.rankName))
+    if (item.season) parts.push(item.season)
+    return parts.join(" · ")
+  }
+
+  function saintQuote() {
+    var item = root.saintFeatured()
+    if (!item) return ""
+    return item.quote || item.legacy || ""
+  }
+
+  function saintSummary() {
+    var item = root.saintFeatured()
+    return item && item.summary ? item.summary : ""
+  }
+
+  function saintFacts() {
+    var item = root.saintFeatured()
+    if (!item) return ""
+    var parts = []
+    if (item.era) parts.push(item.era)
+    if (item.patronage && item.patronage.length) parts.push("Patron of " + item.patronage.join(", "))
+    return parts.join(" · ")
+  }
+
+  function saintContextText() {
+    var item = root.saintContext()
+    return item ? "Today: " + root.saintCapitalize(item.name) : ""
+  }
+
+  function saintOthersText() {
+    var others = root.saintOthers()
+    if (!others.length) return ""
+    var names = []
+    for (var i = 0; i < others.length; i++) names.push(root.saintCapitalize(others[i].name))
+    return "Also today: " + names.join("; ")
+  }
+
+  function saintWikipedia() {
+    var item = root.saintFeatured()
+    return item && item.wikipedia ? String(item.wikipedia) : ""
+  }
+
   function selectedPrayer() {
     if (!root.service || !root.service.prayers) return null
     var list = root.service.prayers.prayers || []
@@ -683,7 +766,7 @@ Panel {
           spacing: Style.spacing.xs
 
           Button {
-            width: (parent.width - parent.spacing * 4) / 5
+            width: (parent.width - parent.spacing * 5) / 6
             text: "Bible"
             selected: root.currentTab === "bible"
             bordered: true
@@ -691,7 +774,7 @@ Panel {
             onClicked: root.setTab("bible")
           }
           Button {
-            width: (parent.width - parent.spacing * 4) / 5
+            width: (parent.width - parent.spacing * 5) / 6
             text: "Catechism"
             selected: root.currentTab === "catechism"
             bordered: true
@@ -699,7 +782,7 @@ Panel {
             onClicked: root.setTab("catechism")
           }
           Button {
-            width: (parent.width - parent.spacing * 4) / 5
+            width: (parent.width - parent.spacing * 5) / 6
             text: "Prayers"
             selected: root.currentTab === "prayers"
             bordered: true
@@ -707,7 +790,7 @@ Panel {
             onClicked: root.setTab("prayers")
           }
           Button {
-            width: (parent.width - parent.spacing * 4) / 5
+            width: (parent.width - parent.spacing * 5) / 6
             text: "Readings"
             selected: root.currentTab === "readings"
             bordered: true
@@ -715,12 +798,20 @@ Panel {
             onClicked: root.setTab("readings")
           }
           Button {
-            width: (parent.width - parent.spacing * 4) / 5
+            width: (parent.width - parent.spacing * 5) / 6
             text: "Hours"
             selected: root.currentTab === "hours"
             bordered: true
             foreground: root.panelForeground
             onClicked: root.setTab("hours")
+          }
+          Button {
+            width: (parent.width - parent.spacing * 5) / 6
+            text: "Saint"
+            selected: root.currentTab === "saint"
+            bordered: true
+            foreground: root.panelForeground
+            onClicked: root.setTab("saint")
           }
         }
 
@@ -1487,6 +1578,185 @@ Panel {
                 opacity: 0.85
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
+                wrapMode: Text.WordWrap
+              }
+            }
+          }
+        }
+
+        Column {
+          id: saintArea
+          width: parent.width
+          visible: root.currentTab === "saint"
+          spacing: Style.spacing.md
+
+          Text {
+            width: parent.width
+            text: "TODAY'S CELEBRATION"
+            textFormat: Text.PlainText
+            color: root.panelForeground
+            opacity: 0.62
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.letterSpacing: 1
+          }
+
+          Text {
+            width: parent.width
+            visible: root.service && root.service.saintLoading && !root.service.saint
+            text: "Loading today's celebration…"
+            textFormat: Text.PlainText
+            color: root.panelForeground
+            opacity: 0.62
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            wrapMode: Text.WordWrap
+          }
+
+          Text {
+            width: parent.width
+            visible: root.service && !root.service.saintLoading && root.service.saintError !== "" && !root.service.saint
+            text: "Couldn't load today's celebration.\n" + (root.service ? root.service.saintError : "")
+            textFormat: Text.PlainText
+            color: root.panelForeground
+            opacity: 0.62
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            wrapMode: Text.WordWrap
+          }
+
+          Flickable {
+            id: saintView
+            width: parent.width
+            visible: root.service && root.service.saint !== null
+            height: root.windowed ? root.fillHeight(saintArea.y + y) : Math.min(Style.space(440), saintColumn.implicitHeight)
+            clip: true
+            contentWidth: width
+            contentHeight: saintColumn.implicitHeight
+            boundsBehavior: Flickable.StopAtBounds
+
+            Column {
+              id: saintColumn
+              width: saintView.width
+              spacing: Style.spacing.sm
+
+              Text {
+                width: parent.width
+                text: root.saintFeatured() ? root.saintCapitalize(root.saintFeatured().name) : ""
+                textFormat: Text.PlainText
+                color: root.panelForeground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.subtitle
+                font.bold: true
+                wrapMode: Text.WordWrap
+              }
+
+              Text {
+                width: parent.width
+                visible: text !== ""
+                text: root.saintFeaturedMeta()
+                textFormat: Text.PlainText
+                color: Commons.Color.accent
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.WordWrap
+              }
+
+              Text {
+                width: parent.width
+                visible: text !== ""
+                text: root.saintQuote() !== "" ? "“" + root.saintQuote() + "”" : ""
+                textFormat: Text.PlainText
+                color: Commons.Color.accent
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                font.italic: true
+                wrapMode: Text.WordWrap
+              }
+
+              Text {
+                width: parent.width
+                visible: text !== ""
+                text: root.saintSummary()
+                textFormat: Text.PlainText
+                color: root.panelForeground
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                lineHeight: 1.2
+                wrapMode: Text.WordWrap
+              }
+
+              Text {
+                width: parent.width
+                visible: text !== ""
+                text: root.saintFacts()
+                textFormat: Text.PlainText
+                color: root.panelForeground
+                opacity: 0.62
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.WordWrap
+              }
+
+              Text {
+                width: parent.width
+                visible: text !== ""
+                text: root.saintContextText()
+                textFormat: Text.PlainText
+                color: root.panelForeground
+                opacity: 0.62
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.WordWrap
+              }
+
+              Text {
+                width: parent.width
+                visible: text !== ""
+                text: root.saintOthersText()
+                textFormat: Text.PlainText
+                color: root.panelForeground
+                opacity: 0.62
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.WordWrap
+              }
+
+              Row {
+                spacing: Style.spacing.sm
+
+                Button {
+                  text: "Franciscan Media"
+                  bordered: true
+                  foreground: root.panelForeground
+                  tooltipText: "Open the Franciscan Media saint of the day"
+                  onClicked: {
+                    var link = root.service && root.service.saint ? root.service.saint.learnMore : ""
+                    if (link) Qt.openUrlExternally(link)
+                  }
+                }
+
+                Button {
+                  visible: root.saintWikipedia() !== ""
+                  text: "Wikipedia"
+                  bordered: true
+                  foreground: root.panelForeground
+                  tooltipText: "Open this saint on Wikipedia"
+                  onClicked: {
+                    var link = root.saintWikipedia()
+                    if (link) Qt.openUrlExternally(link)
+                  }
+                }
+              }
+
+              Text {
+                width: parent.width
+                text: "Calendar: romcal (MIT) · Biographies: daily-saints and catholic-readings-api (MIT)"
+                textFormat: Text.PlainText
+                color: root.panelForeground
+                opacity: 0.45
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
                 wrapMode: Text.WordWrap
               }
             }

@@ -1,10 +1,10 @@
 # Catholic Reference for Omarchy
 
 An Omarchy Quattro bar widget with a theme-colored Chi-Rho icon and a
-five-tab panel: fuzzy search of the **Douay-Rheims Bible** (with **Catena
+six-tab panel: fuzzy search of the **Douay-Rheims Bible** (with **Catena
 Aurea** commentary), the **Catechism of the Catholic Church**, common
-**Catholic prayers**, the daily **Mass readings**, and a bundled **Liturgy of
-the Hours**.
+**Catholic prayers**, the daily **Mass readings**, a bundled **Liturgy of the
+Hours**, and **today's saint and liturgical celebration**.
 
 Plugin id: `io.github.whelanh.catholic-reference`
 
@@ -28,6 +28,12 @@ Plugin id: `io.github.whelanh.catholic-reference`
   Psalm, Second Reading, Gospel Acclamation, Gospel) with the liturgical
   colour and the Lectionary cycle (Year A/B/C and Weekday I/II). Fetched
   from universalis.com and cached locally for offline reuse.
+- **Saint tab** — today's liturgical celebration from a bundled romcal
+  calendar (accurate modern US calendar, including optional memorials), with
+  the saint or feast, its rank and season, a quotation, and a biography
+  matched by name from bundled daily-saints and catholic-readings-api data.
+  On ferias and Sundays it names the liturgical day. Fully offline, with links
+  to Franciscan Media and Wikipedia. No images are loaded.
 - **Hours tab** — the office for Morning, Daytime, Evening, and Night Prayer.
   The current hour is highlighted and selected by default; the liturgical day
   (General Roman Calendar, approximated) is shown above the text.
@@ -46,7 +52,8 @@ Plugin id: `io.github.whelanh.catholic-reference`
 
 Everything runs offline except the Readings tab, which makes one request to
 universalis.com the first time it is opened each day and then reads a local
-cache. The Collect is not shown: it is not available from the free sources.
+cache. The Saint tab is fully offline. The Collect is not shown: it is not
+available from the free sources.
 
 ## Install
 
@@ -70,6 +77,8 @@ access; everything else is fully offline.
 - **Prayers tab:** click a prayer to read it in English and Latin.
 - **Readings tab:** today's Mass readings load automatically; click Refresh to
   force a re-fetch.
+- **Saint tab:** today's celebration and biography are bundled; use the
+  Franciscan Media or Wikipedia buttons to read more.
 - **Hours tab:** click Morning / Daytime / Evening / Night to read that hour's
   office. Scroll to see the full text.
 - `Tab` / `Shift+Tab` switches to the neighbouring bar panel.
@@ -85,6 +94,10 @@ access; everything else is fully offline.
 - Prayers are bundled as `data/prayers.json`.
 - Mass readings are fetched from universalis.com and cached under
   `~/.local/state/omarchy/catholic-reference/` (one request per day).
+- Today's celebration and biography come from bundled data
+  (`data/calendar.json.gz`, generated from romcal; `data/saints.json.gz`,
+  matched by name from daily-saints and catholic-readings-api). The Saint tab
+  makes no network requests.
 - Does not request elevated privileges, runs no background services, and starts no second Quickshell process.
 
 ## Regenerating the data
@@ -97,6 +110,8 @@ runtime or installation.
 node tools/build-data.mjs path/to/DRC.json      # writes data/bible.tsv + data/books.json
 node tools/build-office.mjs path/to/DRC.json    # writes data/office.json
 node tools/build-catena.mjs path/to/catena.xml  # writes data/catena.json.gz
+npm install --prefix tools
+node tools/build-calendar.mjs                   # writes data/calendar.json.gz + data/saints.json.gz
 ```
 
 `DRC.json` is the `formats/json/DRC.json` file from the
@@ -113,6 +128,7 @@ python3 -m py_compile bin/omarchy-catholic
 node tests/model.test.js
 node tests/search.test.js
 node tests/reader.test.js
+node tests/saint.test.js
 qmllint -I "$OMARCHY_PATH/shell" BarWidget.qml Panel.qml Service.qml ChiRho.qml
 ```
 
