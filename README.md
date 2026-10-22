@@ -164,3 +164,9 @@ omarchy plugin remove io.github.whelanh.catholic-reference
 Plugin code is MIT licensed. See [LICENSE](LICENSE). Data sources and
 third-party notices are covered in [NOTICE.md](NOTICE.md) and
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Companion theme
+
+For a desktop to match, see **[Rosary](https://github.com/whelanh/omarchy-rosary-theme)**:
+twenty public-domain paintings for the mysteries, the correct set for the day
+installed automatically, a crucifix cursor, and matching terminal rice.
